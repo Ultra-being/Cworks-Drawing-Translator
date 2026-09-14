@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "incremental": true,
+    "tsBuildInfoFile": ".tsbuildinfo",
+    "outDir": "dist",
+    "rootDir": ".",
+    "types": [
+      "node"
+    ],
+    "noCheck": true
+  },
+  "include": [
+    "src",
+    "db.ts",
+    "scripts"
+  ],
+  "references": [
+    {
+      "path": "../../lib/db"
+    }
+  ]
+}

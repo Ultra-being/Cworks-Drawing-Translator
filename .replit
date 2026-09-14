@@ -1,0 +1,32 @@
+modules = ["nodejs-24", "python-3.11", "postgresql-16"]
+
+[deployment]
+router = "application"
+deploymentTarget = "vm"
+build = ["pnpm", "run", "build"]
+run = ["pnpm", "--filter", "@workspace/api-server", "run", "start"]
+
+[deployment.postBuild]
+args = ["pnpm", "store", "prune"]
+env = { "CI" = "true" }
+
+[workflows]
+runButton = "Project"
+
+[agent]
+stack = "PNPM_WORKSPACE"
+expertMode = true
+integrations = ["javascript_object_storage:2.0.0"]
+
+[nix]
+channel = "stable-25_05"
+# PyMuPDF (fitz) + DXF tooling used by src/cworks-translator/*.py
+packages = ["freetype", "gumbo", "harfbuzz", "jbig2dec", "lcms2", "libimagequant", "libjpeg", "libjpeg_turbo", "libredwg", "libtiff", "libwebp", "libxcrypt", "libyaml", "mupdf", "openjpeg", "swig", "tcl", "tk", "zlib"]
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 20122
+externalPort = 3000

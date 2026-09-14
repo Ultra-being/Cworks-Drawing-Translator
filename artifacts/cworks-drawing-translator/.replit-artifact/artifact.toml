@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/cworks-drawing-translator/"
+title = "Cworks Drawing Translator"
+description = "Standalone web app that translates the text layer of construction and engineering PDF drawing sets into English, with page-level checkpoints, human review, and durable private storage."
+version = "1.0.0"
+id = "artifacts/cworks-drawing-translator"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/cworks-drawing-translator/" ]
+localPort = 20122
+
+[services.development]
+run = "pnpm --filter @workspace/cworks-drawing-translator run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/cworks-drawing-translator", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/cworks-drawing-translator/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20122"
+BASE_PATH = "/cworks-drawing-translator/"

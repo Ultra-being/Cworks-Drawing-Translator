@@ -1,0 +1,8 @@
+[project]
+name = "cworks-drawing-translator"
+version = "0.1.0"
+description = "Python helpers for the Cworks Drawing Translator (PDF text layer + native DXF processing)"
+requires-python = ">=3.11"
+dependencies = [
+    "pymupdf>=1.24",
+]

@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: dxft
+Version: 0.1.0
+Summary: Cworks Drawing Translator: translate the text layer of AutoCAD DXF drawings (ru/ja/en -> en/ja) without touching geometry
+Requires-Python: >=3.11
+Requires-Dist: ezdxf>=1.4
+Requires-Dist: anthropic>=0.60
+Requires-Dist: fastapi>=0.110
+Requires-Dist: uvicorn[standard]>=0.29
+Requires-Dist: python-multipart>=0.0.9
+Requires-Dist: pydantic>=2
+Requires-Dist: matplotlib>=3.8

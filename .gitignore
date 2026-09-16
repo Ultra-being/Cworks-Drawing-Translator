@@ -1,0 +1,7 @@
+jobs/
+samples/*.dxf
+samples/*.dwg
+*.pyc
+__pycache__/
+.venv/
+.env

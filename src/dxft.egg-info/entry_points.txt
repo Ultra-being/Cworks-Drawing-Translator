@@ -1,0 +1,2 @@
+[console_scripts]
+dxft = dxft.cli:main

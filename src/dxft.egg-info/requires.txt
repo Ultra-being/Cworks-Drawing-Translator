@@ -1,0 +1,7 @@
+ezdxf>=1.4
+anthropic>=0.60
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+pydantic>=2
+matplotlib>=3.8

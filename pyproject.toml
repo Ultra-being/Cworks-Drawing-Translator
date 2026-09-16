@@ -1,0 +1,24 @@
+[project]
+name = "dxft"
+version = "0.1.0"
+description = "Cworks Drawing Translator: translate the text layer of AutoCAD DXF drawings (ru/ja/en -> en/ja) without touching geometry"
+requires-python = ">=3.11"
+dependencies = [
+    "ezdxf>=1.4",
+    "anthropic>=0.60",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "python-multipart>=0.0.9",
+    "pydantic>=2",
+    "matplotlib>=3.8",
+]
+
+[project.scripts]
+dxft = "dxft.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

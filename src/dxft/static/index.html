@@ -56,10 +56,12 @@
   td.small{font-size:12px;color:var(--mute);white-space:nowrap}
   .filters{display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap}
   .filters .count{color:var(--mute);font-size:12px;margin-left:auto}
-  .preview{position:relative;background:#fff;border:1px solid var(--line);border-radius:6px;overflow:hidden;user-select:none}
+  .preview{position:relative;background:#fff;border:1px solid var(--line);border-radius:6px;overflow:hidden;user-select:none;min-height:220px}
   .preview img{display:block;width:100%;height:auto}
   .preview .box{position:absolute;border:1.5px dashed var(--accent);background:rgba(31,78,121,.08);pointer-events:none}
-  .preview .busy{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.7);color:var(--mute)}
+  .preview .busy{position:absolute;inset:0;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;background:rgba(255,255,255,.7);color:var(--mute)}
+  .spin{width:22px;height:22px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:rot 1s linear infinite}
+  @keyframes rot{to{transform:rotate(360deg)}}
   pre{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px;white-space:pre-wrap;font-size:12.5px}
   .empty{color:var(--mute);padding:40px;text-align:center}
   .err{background:#f9e3e1;color:var(--bad);padding:8px 12px;border-radius:6px;margin-bottom:12px;white-space:pre-wrap;font-size:12px}
@@ -298,7 +300,8 @@ function renderPreview() {
       ${current.fmt!=='pdf' && sheetList.length>1 ? `<span style="margin-left:8px">Sheet <select onchange="sheet=parseInt(this.value);windowStack=[];renderPreview()">${['<option value="0"'+(sheet===0?' selected':'')+'>whole drawing</option>'].concat(sheetList.map((b,i)=>`<option value="${i+1}" ${sheet===i+1?'selected':''}>${i+1} of ${sheetList.length}</option>`)).join('')}</select></span>` : ''}
       <span class="count">Drag a rectangle to zoom into that area. Large sheets take up to a minute to draw.</span>
     </div>
-    <div class="preview" id="pv"><div class="busy">Drawing…</div></div>`;
+    <div class="preview" id="pv"><div class="busy"><div class="spin"></div><div id="pvmsg">Drawing… (a big sheet can take a minute or two the first time)</div></div></div>`;
+  const t0 = Date.now(); const tick = setInterval(() => { const m = $('#pvmsg'); if (!m) return clearInterval(tick); m.textContent = `Drawing… ${Math.round((Date.now()-t0)/1000)} s (a big sheet can take a minute or two the first time; after that it is instant)`; }, 1000);
   let win = windowStack[windowStack.length-1];
   if (!win && current.fmt!=='pdf' && sheet>0 && sheetList[sheet-1]) win = sheetList[sheet-1];
   const url = `/api/jobs/${current.id}/preview/${which}?page=${page}` + (win ? `&x0=${win[0]}&y0=${win[1]}&x1=${win[2]}&y1=${win[3]}` : '');
@@ -306,8 +309,8 @@ function renderPreview() {
     if (!r.ok) throw new Error(await r.text());
     const drawn = JSON.parse(r.headers.get('X-Window') || 'null');
     const blob = await r.blob(); const img = new Image(); img.src = URL.createObjectURL(blob);
-    img.onload = () => { const pv = $('#pv'); pv.innerHTML = ''; pv.appendChild(img); if (drawn) dragZoom(pv, img, drawn); };
-  }).catch(e => { $('#pv').innerHTML = `<div class="err">${esc(e.message)}</div>` });
+    img.onload = () => { clearInterval(tick); const pv = $('#pv'); if (!pv) return; pv.innerHTML = ''; pv.appendChild(img); if (drawn) dragZoom(pv, img, drawn); };
+  }).catch(e => { clearInterval(tick); const pv = $('#pv'); if (pv) pv.innerHTML = `<div class="err">${esc(e.message)}</div>` });
 }
 function dragZoom(pv, img, drawn) {
   let start = null, box = null;

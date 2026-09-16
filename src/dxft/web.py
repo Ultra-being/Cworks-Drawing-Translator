@@ -67,7 +67,8 @@ def _background(job_id: str, step: str, fn) -> None:
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return (STATIC / "index.html").read_text(encoding="utf-8")
+    # never cache the page: every update must reach the browser on reload
+    return HTMLResponse((STATIC / "index.html").read_text(encoding="utf-8"), headers={"Cache-Control": "no-store"})
 
 
 # ───────────────────────────── jobs ─────────────────────────────

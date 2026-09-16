@@ -218,7 +218,7 @@ def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list
 def _cap_em(group: list[TextItem], avail: dict[str, float]) -> float:
     """Room per line for one instance, in ems of its own height. 0 = unknown."""
     first = group[0]
-    if first.kind not in ("TEXT", "ATTRIB") or first.height <= 0:
+    if first.kind not in ("TEXT", "ATTRIB", "PDF") or first.height <= 0:
         return 0.0
     scale = first.height * (first.width_factor or 1.0)
     line_ems = [layout.em_width(t.plain) for t in group]

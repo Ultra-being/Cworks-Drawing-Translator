@@ -12,6 +12,16 @@
   header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.2px}
   header .sub{color:var(--mute);font-size:12px}
   header .grow{flex:1}
+  .spend{display:flex;gap:14px;font-size:12px;color:var(--mute);margin-right:8px}
+  .spend b{color:var(--ink);font-weight:600}
+  .folder{margin-bottom:6px}
+  .folder>.fh{display:flex;align-items:center;gap:6px;padding:6px 8px;font-weight:600;cursor:pointer;border-radius:6px;font-size:13px}
+  .folder>.fh:hover{background:var(--bg)}
+  .folder>.fh .n{color:var(--mute);font-weight:400;font-size:12px;margin-left:auto}
+  .proj{margin-left:10px;border-left:2px solid var(--line);padding-left:6px;margin-bottom:4px}
+  .proj>.ph{padding:4px 8px;font-size:12px;color:var(--mute);font-weight:600;cursor:pointer;display:flex;gap:6px}
+  .proj>.ph:hover{color:var(--ink)}
+  .collapsed>.proj,.proj.collapsed>.job{display:none}
   main{display:grid;grid-template-columns:280px 1fr;height:calc(100vh - 49px)}
   aside{border-right:1px solid var(--line);background:var(--panel);padding:12px;overflow:auto}
   section{padding:16px 20px;overflow:auto}
@@ -59,8 +69,10 @@
 <body>
 <header>
   <h1>Cworks Drawing Translator</h1>
-  <span class="sub">DXF text layer · Russian / Japanese → English / Japanese · geometry untouched</span>
+  <span class="sub">DXF and vector PDF · Russian / Japanese → English / Japanese · geometry untouched</span>
   <span class="grow"></span>
+  <div id="spend" class="spend" title="Estimated from workspaces/pricing.json"></div>
+  <a href="/guide" target="_blank"><button>How to use</button></a>
   <button class="primary" onclick="openNew()">New drawing</button>
 </header>
 <main>
@@ -71,8 +83,12 @@
 <dialog id="newDlg">
   <form method="dialog" onsubmit="return submitNew(event)">
     <strong>New drawing</strong>
-    <label>DXF file (export DWG as DXF, R2007 or later)</label>
-    <input type="file" name="file" accept=".dxf" required>
+    <label>Drawing file: .dxf (export DWG as DXF, R2007 or later) or a vector .pdf plotted from CAD</label>
+    <input type="file" name="file" accept=".dxf,.pdf" required>
+    <label>Client</label>
+    <input type="text" name="client" list="clients" placeholder="e.g. Cworks – Gotanda" style="width:100%"><datalist id="clients"></datalist>
+    <label>Project</label>
+    <input type="text" name="project" list="projects" placeholder="e.g. Electrical set 2026-09" style="width:100%"><datalist id="projects"></datalist>
     <label>Source language</label>
     <select name="source"><option value="ru">Russian</option><option value="ja">Japanese</option><option value="en">English</option></select>
     <label>Target language</label>
@@ -88,19 +104,49 @@ const api = async (url, opt={}) => {
   if (!r.ok) { let t = await r.text(); try { t = JSON.parse(t).detail || t } catch(e){}; throw new Error(t) }
   return r.headers.get('content-type')?.includes('json') ? r.json() : r;
 };
-let jobs = [], current = null, rows = [], tab = 'review', filter = 'all', search = '', poll = null, which = 'after', windowStack = [];
+let jobs = [], current = null, rows = [], tab = 'review', filter = 'all', search = '', poll = null, which = 'after', windowStack = [], page = 1;
 
+const openFolders = new Set(JSON.parse(localStorage.getItem('dxft.open') || '[]'));
+function toggleFolder(key) { openFolders.has(key) ? openFolders.delete(key) : openFolders.add(key); localStorage.setItem('dxft.open', JSON.stringify([...openFolders])); loadJobs(); }
 async function loadJobs() {
   jobs = await api('/api/jobs');
+  loadSpend();
   const el = $('#jobs');
   el.innerHTML = jobs.length ? '' : '<div class="empty">No jobs yet</div>';
-  for (const j of jobs) {
-    const d = document.createElement('div');
-    d.className = 'job' + (current && current.id === j.id ? ' active' : '');
-    d.innerHTML = `<div class="n">${esc(j.name)}</div><div class="m">${j.source} → ${j.target} · ${j.created_at.replace('T',' ').slice(0,16)} ${statusChip(j)}</div>`;
-    d.onclick = () => openJob(j.id);
-    el.appendChild(d);
+  const tree = {};
+  for (const j of jobs) { const c = j.client || 'Unfiled', p = j.project || 'General'; ((tree[c] ??= {})[p] ??= []).push(j); }
+  const clients = Object.keys(tree).sort((a, b) => a === 'Unfiled' ? 1 : b === 'Unfiled' ? -1 : a.localeCompare(b));
+  $('#clients').innerHTML = clients.map(c => `<option value="${esc(c)}">`).join('');
+  $('#projects').innerHTML = [...new Set(jobs.map(j => j.project || 'General'))].map(p => `<option value="${esc(p)}">`).join('');
+  for (const c of clients) {
+    const hasCurrent = current && (current.client || 'Unfiled') === c;
+    const open = openFolders.has(c) || hasCurrent || clients.length === 1;
+    const f = document.createElement('div'); f.className = 'folder' + (open ? '' : ' collapsed');
+    const n = Object.values(tree[c]).reduce((a, l) => a + l.length, 0);
+    f.innerHTML = `<div class="fh" onclick="toggleFolder(${JSON.stringify(c)})"><span>${open ? '▾' : '▸'}</span><span>${esc(c)}</span><span class="n">${n}</span></div>`;
+    for (const p of Object.keys(tree[c]).sort()) {
+      const pk = c + '/' + p;
+      const popen = openFolders.has(pk) || (current && (current.client || 'Unfiled') === c && (current.project || 'General') === p) || Object.keys(tree[c]).length === 1;
+      const pd = document.createElement('div'); pd.className = 'proj' + (popen ? '' : ' collapsed');
+      pd.innerHTML = `<div class="ph" onclick="toggleFolder(${JSON.stringify(pk)})"><span>${popen ? '▾' : '▸'}</span><span>${esc(p)}</span><span style="margin-left:auto">${tree[c][p].length}</span></div>`;
+      for (const j of tree[c][p]) {
+        const d = document.createElement('div');
+        d.className = 'job' + (current && current.id === j.id ? ' active' : '');
+        d.innerHTML = `<div class="n">${esc(j.name)}</div><div class="m">${j.source} → ${j.target} · ${j.created_at.replace('T',' ').slice(0,16)} ${statusChip(j)}</div>`;
+        d.onclick = () => openJob(j.id);
+        pd.appendChild(d);
+      }
+      f.appendChild(pd);
+    }
+    el.appendChild(f);
   }
+}
+let spendData = null;
+async function loadSpend() {
+  try { spendData = await api('/api/spend'); } catch (e) { return; }
+  const y = spendData.jpy;
+  $('#spend').innerHTML = `<span>Today <b>¥${y.today.toLocaleString()}</b></span><span>This month <b>¥${y.month.toLocaleString()}</b></span><span>All time <b>¥${y.all.toLocaleString()}</b></span><span title="rate in workspaces/pricing.json">@ ¥${spendData.jpy_per_usd}/$ · est.</span>`;
+  if (current) renderHeader();
 }
 function statusChip(j) {
   if (j.running) return `<span class="chip run">${j.running}…</span>`;
@@ -114,7 +160,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;
 
 async function openJob(id) {
   current = await api('/api/jobs/' + id);
-  windowStack = [];
+  windowStack = []; page = 1;
   rows = await api(`/api/jobs/${id}/review`);
   render(); loadJobs(); schedulePoll();
 }
@@ -123,7 +169,7 @@ function schedulePoll() {
   if (current && current.running) poll = setTimeout(async () => {
     const before = current.running;
     current = await api('/api/jobs/' + current.id);
-    if (!current.running) { rows = await api(`/api/jobs/${current.id}/review`); render(); loadJobs(); }
+    if (!current.running) { rows = await api(`/api/jobs/${current.id}/review`); render(); loadJobs(); loadSpend(); }
     else { renderHeader(); }
     schedulePoll();
   }, 2000);
@@ -143,8 +189,10 @@ function renderHeader() {
   const inv = s.inventory, pr = s.prepare, tr = s.translate, pa = s.patch;
   const busy = !!run;
   $('#head').innerHTML = `
-    <div style="display:flex;align-items:baseline;gap:12px"><h2 style="margin:0;font-size:17px">${esc(current.name)}</h2>
-      <span class="sub" style="color:var(--mute)">${current.source} → ${current.target} · job ${current.id}</span></div>
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h2 style="margin:0;font-size:17px">${esc(current.name)}</h2>
+      <span class="sub" style="color:var(--mute)">${esc(current.client||'Unfiled')} / ${esc(current.project||'General')} · ${current.source} → ${current.target} · ${(current.fmt||'dxf').toUpperCase()} · job ${current.id}
+      <a href="#" onclick="moveJob();return false" style="color:var(--accent)">move</a></span>
+      <span class="sub" style="color:var(--mute);margin-left:auto">${spendData && spendData.per_job_jpy[current.id] != null ? 'Spent on this job ≈ <b>¥' + spendData.per_job_jpy[current.id].toLocaleString() + '</b>' : ''}</span></div>
     ${current.error ? `<div class="err">${esc(current.error)}</div>` : ''}
     <div class="stages">
       ${st('inventory','1 Inventory', inv ? `${inv.strings} strings, ${inv.by_lang?.[current.source]||0} ${current.source}` : '')}
@@ -157,7 +205,7 @@ function renderHeader() {
       <button class="primary" ${busy||!pr?'disabled':''} onclick="act('translate')">${tr?'Re-translate':'Translate'}</button>
       <button ${busy||!tr?'disabled':''} onclick="act('approve-all')">Approve all clean</button>
       <button class="primary" ${busy||!tr?'disabled':''} onclick="act('patch')">${pa?'Re-patch':'Patch & verify'}</button>
-      <a ${pa?'':'style="pointer-events:none;opacity:.45"'} href="/api/jobs/${current.id}/download/output.dxf"><button>Download DXF</button></a>
+      <a ${pa?'':'style="pointer-events:none;opacity:.45"'} href="/api/jobs/${current.id}/download/output"><button>Download ${(current.fmt||'dxf').toUpperCase()}</button></a>
       <a ${pa?'':'style="pointer-events:none;opacity:.45"'} href="/api/jobs/${current.id}/download/report.md"><button>Report</button></a>
       <button ${busy||!pa?'disabled':''} onclick="act('remember')" title="Reuse these approved translations on later sheets">Store in memory</button>
       <span style="flex:1"></span>
@@ -171,6 +219,12 @@ async function act(what) {
     current = await api(`/api/jobs/${current.id}/${what}`, {method:'POST'});
     render(); loadJobs(); schedulePoll();
   } catch (e) { alert(e.message) }
+}
+async function moveJob() {
+  const client = prompt('Client folder:', current.client || 'Unfiled'); if (client === null) return;
+  const project = prompt('Project folder:', current.project || 'General'); if (project === null) return;
+  current = await api(`/api/jobs/${current.id}`, {method:'PATCH', headers:{'content-type':'application/json'}, body: JSON.stringify({client, project})});
+  render(); loadJobs();
 }
 async function del() {
   if (!confirm('Delete this job and its files?')) return;
@@ -235,11 +289,12 @@ function renderPreview() {
       <button class="${which==='before'?'primary':''}" onclick="which='before';windowStack=[];renderPreview()">Before</button>
       <button class="${which==='after'?'primary':''}" ${hasAfter?'':'disabled'} onclick="which='after';windowStack=[];renderPreview()">After</button>
       <button ${windowStack.length?'':'disabled'} onclick="windowStack.pop();renderPreview()">↩ Back</button>
+      ${current.fmt==='pdf' ? `<span style="margin-left:8px">Page <input type="text" id="pg" value="${page}" style="width:56px" onchange="page=parseInt(this.value)||1;windowStack=[];renderPreview()"> of ${(current.stages?.inventory||{}).pages||'?'}</span>` : ''}
       <span class="count">Drag a rectangle to zoom into that area. Large sheets take up to a minute to draw.</span>
     </div>
     <div class="preview" id="pv"><div class="busy">Drawing…</div></div>`;
   const win = windowStack[windowStack.length-1];
-  const url = `/api/jobs/${current.id}/preview/${which}` + (win ? `?x0=${win[0]}&y0=${win[1]}&x1=${win[2]}&y1=${win[3]}` : '');
+  const url = `/api/jobs/${current.id}/preview/${which}?page=${page}` + (win ? `&x0=${win[0]}&y0=${win[1]}&x1=${win[2]}&y1=${win[3]}` : '');
   fetch(url).then(async r => {
     if (!r.ok) throw new Error(await r.text());
     const drawn = JSON.parse(r.headers.get('X-Window') || 'null');

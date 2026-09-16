@@ -5,7 +5,7 @@
   dxft run ... --mock                            no API: proves the round trip
   dxft review <job-id>                           print the review table
   dxft approve <job-id> <seg-id> [--text "..."]  approve / edit one segment
-  dxft patch <job-id>                            write output.dxf from approved rows
+  dxft patch <job-id>                            write output.dxf / output.pdf from approved rows
   dxft verify <job-id>                           re-check output against input
   dxft remember <job-id>                         store reviewed translations in the memory (reused on later sheets)
   dxft serve [--port 8765]                       the web app
@@ -37,7 +37,7 @@ def cmd_inventory(a):
 
 
 def cmd_run(a):
-    job = Job.create(a.file, a.source, a.target, root=Path(a.jobs))
+    job = Job.create(a.file, a.source, a.target, root=Path(a.jobs), client=a.client or "", project=a.project or "")
     print(f"job {job.id}")
     print("inventory:", json.dumps(job.inventory(), ensure_ascii=False))
     print("prepare:  ", json.dumps(job.prepare(), ensure_ascii=False))
@@ -45,7 +45,7 @@ def cmd_run(a):
     if not a.no_approve:
         print("approved: ", job.approve_all_ok())
         print("patch:    ", json.dumps(job.patch(learn=a.learn), ensure_ascii=False))
-        print(f"output:   {job.dir / 'output.dxf'}\nreport:   {job.dir / 'report.md'}")
+        print(f"output:   {job.output_path}\nreport:   {job.dir / 'report.md'}")
     else:
         print(f"review with: dxft review {job.id}")
 
@@ -81,7 +81,7 @@ def cmd_remember(a):
 def cmd_verify(a):
     from .patch import verify
     job = Job(a.job, Path(a.jobs))
-    v = verify(str(job.dir / "input.dxf"), str(job.dir / "output.dxf"))
+    v = verify(str(job.input_path), str(job.output_path))
     print(json.dumps(v.__dict__, indent=2))
 
 
@@ -99,6 +99,7 @@ def main(argv=None):
     s = sub.add_parser("inventory"); s.add_argument("file"); s.add_argument("--limit", type=int, default=25); s.set_defaults(fn=cmd_inventory)
     s = sub.add_parser("run"); s.add_argument("file"); s.add_argument("--source", default="auto"); s.add_argument("--target", default="en")
     s.add_argument("--mock", action="store_true"); s.add_argument("--model"); s.add_argument("--no-approve", action="store_true")
+    s.add_argument("--client"); s.add_argument("--project")
     s.add_argument("--learn", action="store_true", help="store the approved translations in the memory for this language pair")
     s.set_defaults(fn=cmd_run)
     s = sub.add_parser("review"); s.add_argument("job"); s.set_defaults(fn=cmd_review)

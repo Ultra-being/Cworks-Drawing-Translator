@@ -42,7 +42,7 @@ def assess(segments: list[Segment], translations: list[Translation], target_lang
         se, te = em_width(MARK_RE.sub("", s.source)), em_width(plain_t)
         ratio = te / se if se > 0 else 1.0
         kind = s.kinds[0] if s.kinds else "TEXT"
-        if kind not in ("TEXT", "ATTRIB") or not s.caps:
+        if kind not in ("TEXT", "ATTRIB", "PDF") or not s.caps:
             flag = "long" if ratio > 1.6 else ""
             out.append(Fit(s.id, round(se, 1), round(te, 1), round(ratio, 2), flag, 1.0))
             continue

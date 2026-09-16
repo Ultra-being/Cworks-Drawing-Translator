@@ -90,7 +90,7 @@ def _same_row(a: TextItem, b: TextItem) -> bool:
 
 def _flat(it: TextItem) -> bool:
     r = it.rotation % 360.0
-    return (r < 1.0 or r > 359.0) and not it.vertical and it.kind in ("TEXT", "ATTRIB") and it.height > 0
+    return (r < 1.0 or r > 359.0) and not it.vertical and it.kind in ("TEXT", "ATTRIB", "PDF") and it.height > 0
 
 
 def available_widths(items: list[TextItem], walls: dict[str, list[list[float]]]) -> dict[str, float]:
@@ -100,7 +100,7 @@ def available_widths(items: list[TextItem], walls: dict[str, list[list[float]]])
     out: dict[str, float] = {}
     by_where: dict[str, list[TextItem]] = {}
     for it in items:
-        if it.height > 0 and it.kind in ("TEXT", "ATTRIB", "MTEXT"):
+        if it.height > 0 and it.kind in ("TEXT", "ATTRIB", "MTEXT", "PDF"):
             by_where.setdefault(it.where, []).append(it)
 
     for where, group in by_where.items():
@@ -225,7 +225,7 @@ def paragraphs(items: list[TextItem], candidates: set[str]) -> list[Paragraph]:
     group is only accepted when its last line does terminate — a title block
     of unrelated lines never ends with 。 and stays as separate lines.
     """
-    cand = [it for it in items if it.handle in candidates and _flat(it) and it.kind == "TEXT" and it.halign == 0]
+    cand = [it for it in items if it.handle in candidates and _flat(it) and it.kind in ("TEXT", "PDF") and it.halign == 0]
     keyed: dict[tuple, list[TextItem]] = {}
     for it in cand:
         keyed.setdefault((it.where, it.layer, it.style, round(it.height, 3)), []).append(it)

@@ -2,14 +2,14 @@
 step is inspectable and any step can be re-run or hand-edited.
 
 jobs/<id>/
-  input.dxf          the file as uploaded
+  input.dxf|pdf      the file as uploaded
   job.json           settings + status
   inventory.json     stage 1
   segments.json      stage 2 (unique strings with markers)
   translations.json  stage 3 (model output, marker-checked)
   fit.json           stage 4
   review.json        stage 5: what the human approved (id -> text); edits win
-  output.dxf         stage 6
+  output.dxf|pdf     stage 6
   report.md          stage 7
 """
 from __future__ import annotations
@@ -26,8 +26,26 @@ from . import prepare as prep
 from . import translate as tr
 from . import fit as fitmod
 from . import patch as pt
+from . import pdfdoc
 
 JOBS = Path("jobs")
+
+
+def pricing() -> dict:
+    """USD per million tokens per model + JPY rate, from workspaces/pricing.json."""
+    import os
+    root = Path(os.environ.get("DXFT_WORKSPACES", Path(__file__).resolve().parents[2] / "workspaces"))
+    p = root / "pricing.json"
+    try:
+        return _r(p)
+    except Exception:
+        return {"jpy_per_usd": 150, "usd_per_million": {"default": {"input": 5, "output": 25, "cache_read": 0.5, "cache_write": 6.25}}}
+
+
+def cost_usd(entry: dict, prices: dict) -> float:
+    table = prices.get("usd_per_million", {})
+    rate = table.get(entry.get("model"), table.get("default", {}))
+    return sum(float(entry.get(k, 0) or 0) / 1e6 * float(rate.get(k, 0)) for k in ("input", "output", "cache_read", "cache_write"))
 
 
 class Memory:
@@ -70,10 +88,13 @@ class Job:
         self.dir.mkdir(parents=True, exist_ok=True)
 
     @classmethod
-    def create(cls, dxf_path: str, source: str, target: str, name: str = "", root: Path = JOBS) -> "Job":
+    def create(cls, dxf_path: str, source: str, target: str, name: str = "", root: Path = JOBS,
+               client: str = "", project: str = "") -> "Job":
         job = cls(time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6], root)
-        shutil.copy(dxf_path, job.dir / "input.dxf")
-        job.meta = {"id": job.id, "name": name or Path(dxf_path).name, "source": source, "target": target,
+        fmt = "pdf" if (name or dxf_path).lower().endswith(".pdf") else "dxf"
+        shutil.copy(dxf_path, job.dir / f"input.{fmt}")
+        job.meta = {"id": job.id, "name": name or Path(dxf_path).name, "source": source, "target": target, "fmt": fmt,
+                    "client": client.strip() or "Unfiled", "project": project.strip() or "General",
                     "status": "created", "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "stages": {}}
         job.save_meta()
         return job
@@ -89,6 +110,18 @@ class Job:
     def save_meta(self) -> None:
         _w(self.dir / "job.json", self._meta)
 
+    @property
+    def fmt(self) -> str:
+        return self._meta.get("fmt", "dxf") if hasattr(self, "_meta") else self.meta.get("fmt", "dxf")
+
+    @property
+    def input_path(self) -> Path:
+        return self.dir / f"input.{self.fmt}"
+
+    @property
+    def output_path(self) -> Path:
+        return self.dir / f"output.{self.fmt}"
+
     def _stage_done(self, name: str, **info) -> None:
         m = self.meta
         m["stages"][name] = {"done_at": time.strftime("%Y-%m-%dT%H:%M:%S"), **info}
@@ -98,7 +131,16 @@ class Job:
 
     # ── stages ──
     def inventory(self) -> dict:
-        doc, audit_errors = inv.load(str(self.dir / "input.dxf"))
+        if self.fmt == "pdf":
+            doc = pdfdoc.open_pdf(str(self.input_path))
+            items, walls, geo = pdfdoc.inventory(doc)
+            summ = inv.summary(items)
+            summ["pages"] = len(doc)
+            _w(self.dir / "inventory.json", {"summary": summ, "audit_errors": 0, "version": "pdf",
+                                              "items": [it.to_dict() for it in items], "walls": walls, "pdf_geo": geo})
+            self._stage_done("inventory", **summ)
+            return summ
+        doc, audit_errors = inv.load(str(self.input_path))
         items = inv.inventory(doc)
         summ = inv.summary(items)
         walls = inv.walls(doc)
@@ -134,6 +176,12 @@ class Job:
         results = [by_id[s.id] for s in segments if s.id in by_id]
         _w(self.dir / "translations.json", {"mode": mode, "model": getattr(translator, "model", mode), "usage": translator.usage,
                                             "from_memory": len(remembered), "translations": [asdict(t) for t in results]})
+        if mode != "mock":
+            m = self.meta
+            m.setdefault("usage_log", []).append({"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "model": getattr(translator, "model", mode),
+                                                  "segments": len(segments) - len(remembered), **translator.usage})
+            self._meta = m
+            self.save_meta()
         fits = fitmod.assess(segments, results, meta["target"])
         _w(self.dir / "fit.json", [asdict(f) for f in fits])
         info = {"translated": sum(1 for t in results if t.ok), "from_memory": len(remembered), "needs_attention": sum(1 for t in results if not t.ok),
@@ -208,11 +256,27 @@ class Job:
         if learn:
             self.remember()
         wfs = {r["id"]: float(r["width_factor"]) for r in rows if r["id"] in approved and r["width_override"]}
-        doc, _ = inv.load(str(self.dir / "input.dxf"))
-        res = pt.apply(doc, items, segments, approved, self.meta["target"], wfs)
-        out = self.dir / "output.dxf"
-        pt.save(doc, str(out))
-        ver = pt.verify(str(self.dir / "input.dxf"), str(out))
+        if self.fmt == "pdf":
+            doc = pdfdoc.open_pdf(str(self.input_path))
+            n_before, h_before = pdfdoc.fingerprint(doc)
+            res = pdfdoc.apply(doc, inv_data.get("pdf_geo", {}), segments, approved, self.meta["target"], wfs)
+            out = self.output_path
+            doc.save(str(out), garbage=3, deflate=True)
+            doc2 = pdfdoc.open_pdf(str(out))
+            n_after, h_after = pdfdoc.fingerprint(doc2)
+            problems = []
+            if n_before != n_after:
+                problems.append(f"line-art count changed: {n_before} -> {n_after}")
+            elif h_before != h_after:
+                problems.append("line-art fingerprint changed")
+            ver = pt.Verification(ok=not problems, entities_before=n_before, entities_after=n_after, geometry_before=h_before[:12],
+                                  geometry_after=h_after[:12], text_before=len(items), text_after=len(items), problems=problems)
+        else:
+            doc, _ = inv.load(str(self.input_path))
+            res = pt.apply(doc, items, segments, approved, self.meta["target"], wfs)
+            out = self.output_path
+            pt.save(doc, str(out))
+            ver = pt.verify(str(self.input_path), str(out))
         report = self._report(res, ver, rows)
         (self.dir / "report.md").write_text(report, encoding="utf-8")
         info = {"patched": res.patched, "skipped": len(res.skipped), "narrowed": res.width_factors, "overflow": len(res.overflow),
@@ -241,7 +305,7 @@ class Job:
             "",
             "## Verification",
             f"- Geometry unchanged: {'yes' if ver.ok else 'NO'}",
-            f"- Non-text entities: {ver.entities_before} before, {ver.entities_after} after",
+            f"- Line-work entities: {ver.entities_before} before, {ver.entities_after} after",
             f"- Text entities in model space: {ver.text_before} before, {ver.text_after} after",
             *[f"- Problem: {p}" for p in ver.problems],
             "",

@@ -18,7 +18,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from .pipeline import Job, JOBS, Memory
+from .pipeline import Job, JOBS, Memory, pricing, cost_usd
 from . import preview
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -86,14 +86,15 @@ def list_jobs():
 
 
 @app.post("/api/jobs")
-def create_job(file: UploadFile = File(...), source: str = Form("auto"), target: str = Form("en")):
-    if not file.filename or not file.filename.lower().endswith(".dxf"):
-        raise HTTPException(400, "upload a .dxf file (export DWG as DXF first)")
-    tmp = _root() / "_upload.dxf"
+def create_job(file: UploadFile = File(...), source: str = Form("auto"), target: str = Form("en"),
+               client: str = Form(""), project: str = Form("")):
+    if not file.filename or not file.filename.lower().endswith((".dxf", ".pdf")):
+        raise HTTPException(400, "upload a .dxf (export DWG as DXF first) or a vector .pdf")
+    tmp = _root() / ("_upload.pdf" if file.filename.lower().endswith(".pdf") else "_upload.dxf")
     tmp.parent.mkdir(parents=True, exist_ok=True)
     with tmp.open("wb") as f:
         shutil.copyfileobj(file.file, f)
-    job = Job.create(str(tmp), source, target, name=file.filename, root=_root())
+    job = Job.create(str(tmp), source, target, name=file.filename, root=_root(), client=client, project=project)
     tmp.unlink(missing_ok=True)
 
     def prep():
@@ -107,6 +108,54 @@ def create_job(file: UploadFile = File(...), source: str = Form("auto"), target:
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str):
     return _state(job_id)
+
+
+@app.patch("/api/jobs/{job_id}")
+async def update_job(job_id: str, body: dict):
+    """Move a job to another client / project (folders in the sidebar)."""
+    job = _job(job_id)
+    m = job.meta
+    for k in ("client", "project", "name"):
+        if body.get(k) is not None and str(body[k]).strip():
+            m[k] = str(body[k]).strip()
+    job.meta = m
+    job.save_meta()
+    return _state(job_id)
+
+
+@app.get("/api/spend")
+def spend():
+    """Token spend across all jobs, in USD and JPY, from each job's usage log."""
+    import datetime as dt
+    prices = pricing()
+    jpy = float(prices.get("jpy_per_usd", 150))
+    today = dt.date.today().isoformat()
+    month = today[:7]
+    tot = {"all": 0.0, "month": 0.0, "today": 0.0, "tokens_in": 0, "tokens_out": 0, "jobs": 0}
+    per_job: dict[str, float] = {}
+    for d in _root().glob("*/job.json"):
+        try:
+            m = json.loads(d.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for e in m.get("usage_log", []):
+            usd = cost_usd(e, prices)
+            tot["all"] += usd
+            if e.get("at", "")[:7] == month:
+                tot["month"] += usd
+            if e.get("at", "")[:10] == today:
+                tot["today"] += usd
+            tot["tokens_in"] += int(e.get("input", 0) or 0) + int(e.get("cache_read", 0) or 0) + int(e.get("cache_write", 0) or 0)
+            tot["tokens_out"] += int(e.get("output", 0) or 0)
+            per_job[m["id"]] = per_job.get(m["id"], 0.0) + usd
+    tot["jobs"] = len(per_job)
+    return {"usd": tot, "jpy_per_usd": jpy, "jpy": {k: round(v * jpy) for k, v in tot.items() if k in ("all", "month", "today")},
+            "per_job_jpy": {k: round(v * jpy) for k, v in per_job.items()}, "rates": prices.get("usd_per_million", {})}
+
+
+@app.get("/guide", response_class=HTMLResponse)
+def guide():
+    return (STATIC / "guide.html").read_text(encoding="utf-8")
 
 
 @app.delete("/api/jobs/{job_id}")
@@ -178,25 +227,28 @@ def remember(job_id: str):
 @app.get("/api/jobs/{job_id}/download/{name}")
 def download(job_id: str, name: str):
     job = _job(job_id)
-    if name not in ("output.dxf", "report.md", "input.dxf"):
+    fmt = job.fmt
+    if name not in ("output", "report.md", "input"):
         raise HTTPException(404)
-    p = job.dir / name
+    p = {"output": job.output_path, "input": job.input_path, "report.md": job.dir / "report.md"}[name]
     if not p.exists():
         raise HTTPException(404, "not produced yet")
     stem = Path(job.meta["name"]).stem
-    filename = {"output.dxf": f"{stem}_{job.meta['target'].upper()}.dxf", "report.md": f"{stem}_report.md", "input.dxf": job.meta["name"]}[name]
+    filename = {"output": f"{stem}_{job.meta['target'].upper()}.{fmt}", "report.md": f"{stem}_report.md", "input": job.meta["name"]}[name]
     return FileResponse(str(p), filename=filename)
 
 
 @app.get("/api/jobs/{job_id}/preview/{which}")
 def preview_png(job_id: str, which: str, x0: float | None = None, y0: float | None = None,
-                x1: float | None = None, y1: float | None = None, width: int = 4000):
+                x1: float | None = None, y1: float | None = None, width: int = 4000, page: int = 1):
     """PNG of the input (before) or output (after). Without a window: the
     text extent of the sheet. Rendering is synchronous; big sheets take a minute."""
     job = _job(job_id)
-    src = job.dir / ("input.dxf" if which == "before" else "output.dxf")
+    src = job.input_path if which == "before" else job.output_path
     if not src.exists():
         raise HTTPException(404, "not produced yet")
+    if job.fmt == "pdf":
+        return _preview_pdf(job, src, which, page, x0, y0, x1, y1, width)
     window = None
     if None not in (x0, y0, x1, y1):
         window = (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
@@ -214,6 +266,27 @@ def preview_png(job_id: str, which: str, x0: float | None = None, y0: float | No
     if meta.exists():
         headers["X-Window"] = meta.read_text()
     return FileResponse(str(png), media_type="image/png", headers=headers)
+
+
+def _preview_pdf(job: Job, src: Path, which: str, page: int, x0, y0, x1, y1, width: int):
+    """PDF pages render directly. Windows arrive in 'up' coordinates (y negated),
+    the same frame the inventory uses, and go back the same way."""
+    import pymupdf
+    doc = pymupdf.open(str(src))
+    page = max(1, min(page, len(doc)))
+    pg = doc[page - 1]
+    if None not in (x0, y0, x1, y1):
+        clip = pymupdf.Rect(min(x0, x1), -max(y0, y1), max(x0, x1), -min(y0, y1))
+        key = f"p{page}_{int(clip.x0)}_{int(clip.y0)}_{int(clip.x1)}_{int(clip.y1)}_{width}"
+    else:
+        clip = pg.rect
+        key = f"p{page}_overview"
+    png = job.dir / f"preview_{which}_{key}.png"
+    if not png.exists():
+        zoom = width / max(clip.width, 1)
+        pg.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), clip=clip, alpha=False).save(str(png))
+    drawn = [clip.x0, -clip.y1, clip.x1, -clip.y0]
+    return FileResponse(str(png), media_type="image/png", headers={"X-Window": json.dumps(drawn), "X-Pages": str(len(doc))})
 
 
 @app.get("/api/memory/{source}/{target}")

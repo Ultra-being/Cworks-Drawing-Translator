@@ -1,0 +1,123 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>How to use · Cworks Drawing Translator</title>
+<style>
+body{margin:0;background:#f6f5f2;color:#1c1c1a;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+main{max-width:820px;margin:0 auto;padding:32px 24px 80px;background:#fff;min-height:100vh;border-left:1px solid #e3e1dc;border-right:1px solid #e3e1dc}
+h1{font-size:24px;margin:0 0 6px} h2{font-size:17px;margin:32px 0 10px;padding-top:12px;border-top:1px solid #e3e1dc}
+table{border-collapse:collapse;width:100%;font-size:14px} th,td{border:1px solid #e3e1dc;padding:6px 8px;text-align:left;vertical-align:top} th{background:#f6f5f2}
+code{background:#f0efeb;padding:1px 5px;border-radius:4px;font-size:13px} hr{border:0;border-top:1px solid #e3e1dc}
+a{color:#1f4e79} .top{font-size:12px;color:#6b6a66;margin-bottom:18px}
+@media print{main{border:0}}
+</style></head><body><main><div class="top"><a href="/">← back to the app</a> · print this page for a desk copy</div><h1>Cworks Drawing Translator — how to use</h1>
+<p>Translates the text on CAD drawings (Russian or Japanese → English or Japanese) and gives you back the same drawing with the text replaced. Lines, dimensions, blocks and layout are never touched; the tool proves that on every job.</p>
+<p>Open the app: <strong>http://127.0.0.1:8765</strong> (on the machine where it runs).</p>
+<hr />
+<h2>1. What to give it</h2>
+<table>
+<thead>
+<tr>
+<th>You have</th>
+<th>Do this</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>DWG</strong></td>
+<td>Open in AutoCAD → <code>SAVEAS</code> → file type <strong>AutoCAD 2018 DXF</strong> (any R2007 or later is fine). One DXF per sheet or one for the whole set, both work.</td>
+<td>Translated <strong>DXF</strong> you can open or save back as DWG.</td>
+</tr>
+<tr>
+<td><strong>PDF plotted from CAD</strong> (the text is selectable in a PDF reader)</td>
+<td>Upload the PDF as it is.</td>
+<td>Translated <strong>PDF</strong>. It cannot be turned back into CAD.</td>
+</tr>
+<tr>
+<td><strong>Scanned PDF / image</strong> (text not selectable)</td>
+<td>Not supported yet.</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p>Sizes up to ~50 MB are fine. A 60-page PDF or a full architecture set takes 10–30 minutes to translate.</p>
+<h2>2. Run a drawing</h2>
+<ol>
+<li><strong>New drawing</strong> (top right). Choose the file, the <strong>client</strong> and <strong>project</strong> folders (type a new name or pick an existing one), the source and target language. Upload.</li>
+<li>The job appears in the sidebar under its client/project. Stage 1–2 (inventory, prepare) run at once: you see how many strings were found and how many are unique.</li>
+<li>Click <strong>Translate</strong>. The stage strip pulses while it runs. Strings the tool has seen before on this client (title block, legends, repeated labels) come "from memory" and cost nothing.</li>
+<li>When it finishes, the <strong>Review</strong> tab fills in. Everything the model translated cleanly is already ticked as approved.</li>
+</ol>
+<h2>3. Review</h2>
+<p>One row per unique string. The <strong>×</strong> column says how many places on the drawing that string appears — fix it once, it's fixed everywhere.</p>
+<ul>
+<li>Click a translation to edit it. Edited rows turn yellow; <strong>↺</strong> puts the model's version back.</li>
+<li>Untick a row to leave that string untranslated in the output.</li>
+<li><strong>Filters</strong>: <em>Needs attention</em> shows what a human must check; <em>Fit flags</em> shows strings that had to be squeezed.</li>
+</ul>
+<p>What the notes mean:</p>
+<table>
+<thead>
+<tr>
+<th>Note / flag</th>
+<th>Meaning</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>needs a human</strong></td>
+<td>The model's answer was unusable (formatting lost). The original text is kept.</td>
+<td>Type the translation yourself, tick approve.</td>
+</tr>
+<tr>
+<td><strong>name reading unverified</strong></td>
+<td>A personal name was romanised; the reading can't be verified from the drawing.</td>
+<td>Check with the client or the drawing register.</td>
+</tr>
+<tr>
+<td><strong>memory</strong></td>
+<td>Reused from an earlier approved job.</td>
+<td>Nothing, unless it's wrong — then edit it and it will be relearned when you store the job.</td>
+</tr>
+<tr>
+<td><strong>long / tight · w0.8</strong></td>
+<td>English is wider than the original; it was narrowed to 80 % width to fit.</td>
+<td>Fine down to about w0.7. Below that, consider a shorter wording.</td>
+</tr>
+<tr>
+<td><strong>overflow</strong></td>
+<td>Even at the narrowest readable width it does not fit.</td>
+<td>Shorten the translation.</td>
+</tr>
+</tbody>
+</table>
+<p>Grid axes, marks like <strong>ОК-9.1</strong> or <strong>Д-9л</strong>, numbers, model numbers and codes are deliberately left as they are — a reader matches them against the schedules.</p>
+<h2>4. Patch, check, download</h2>
+<ol>
+<li><strong>Patch &amp; verify</strong> writes the drawing. The strip shows <em>"… entities · geometry unchanged"</em>. If it ever says <strong>CHANGED</strong>, stop and tell Allan — don't issue that file.</li>
+<li><strong>Preview</strong> tab: <em>Before</em> / <em>After</em>. Drag a rectangle to zoom in; <strong>Back</strong> goes up a level. PDFs have a page box.</li>
+<li><strong>Download DXF/PDF</strong> and open it in AutoCAD or the free <strong>Autodesk Viewer</strong> (viewer.autodesk.com — drag the file in). Look at: title block, tables/schedules, long notes paragraphs, anything that was flagged.</li>
+<li><strong>Report</strong> tab lists everything that was written, narrowed, left untranslated, and the token usage.</li>
+</ol>
+<h2>5. Store in memory (do this after review)</h2>
+<p>When the sheet is reviewed and good, press <strong>Store in memory</strong>. Every approved translation is kept for that language pair and reused verbatim on the next sheets — so a 20-sheet set has an identical title block on every sheet and each later sheet costs less. Don't store a job you haven't looked at.</p>
+<h2>6. Cost</h2>
+<p>The strip at the top shows the estimated spend <strong>today / this month / all time in ¥</strong>, and each job shows its own cost. It's calculated from the token counts and the prices in <code>workspaces/pricing.json</code> — if Anthropic's prices change, edit that file (also the ¥/$ rate).</p>
+<p>Rough guide: a plan sheet ≈ ¥100–300, a dense notes sheet ≈ ¥500–1,500, a 60-page PDF ≈ ¥5,000–15,000, before memory savings.</p>
+<h2>7. Making it translate the way we want</h2>
+<p>The rules live in plain text files under <code>workspaces/</code> (there is a "Navigator Workspaces"-style folder on the Desktop for the Navigator app; this tool has its own <code>drawing-translator/workspaces/</code>):</p>
+<ul>
+<li><code>_references/rules.md</code> — what never to translate, abbreviations, house style.</li>
+<li><code>_references/glossary/ru-en.md</code>, <code>ja-en.md</code>, … — fixed term translations (one per line: <code>term → translation</code>). Add the client's preferred wording here.</li>
+<li><code>CLAUDE.md</code> — the standing instructions to the model.</li>
+</ul>
+<p>Edit, save, run the next job — no restart needed.</p>
+<h2>8. If something goes wrong</h2>
+<ul>
+<li><strong>Upload refused</strong>: it must be <code>.dxf</code> or a vector <code>.pdf</code>. DWG must be exported first.</li>
+<li><strong>A stage shows an error in red</strong>: read it; most often it's a network/API hiccup — press Translate again. Nothing is lost; every stage is a file in the job folder.</li>
+<li><strong>Job is "busy"</strong>: another step is still running on it. Wait for the strip to stop pulsing.</li>
+<li><strong>Text looks wrong in the After preview but right in the review table</strong>: the preview uses a substitute font; check in AutoCAD before judging.</li>
+<li><strong>Japanese output shows boxes in the viewer</strong>: the viewer lacks a Japanese font. AutoCAD with the <code>extfont2</code> bigfont shows it correctly.</li>
+</ul>
+<p>Questions → Allan.</p></main></body></html>

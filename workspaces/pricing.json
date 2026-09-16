@@ -1,0 +1,9 @@
+{
+  "_comment": "USD per million tokens, per model. Check against console.anthropic.com > Plans & billing and edit here; the app shows an estimate from these numbers. jpy_per_usd is the rate used for the yen figure.",
+  "jpy_per_usd": 150,
+  "usd_per_million": {
+    "claude-opus-5":   {"input": 5.0,  "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
+    "claude-sonnet-5": {"input": 3.0,  "output": 15.0, "cache_read": 0.30, "cache_write": 3.75},
+    "default":         {"input": 5.0,  "output": 25.0, "cache_read": 0.50, "cache_write": 6.25}
+  }
+}

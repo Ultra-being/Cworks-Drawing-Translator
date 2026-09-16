@@ -258,7 +258,7 @@ def preview_png(job_id: str, which: str, x0: float | None = None, y0: float | No
         if inv.exists():
             found = preview.sheets(inv)
             window = found[0] if len(found) == 1 else preview.text_extent(inv)
-    key = "overview" if (x0 is None) else f"{int(window[0])}_{int(window[1])}_{int(window[2])}_{int(window[3])}_{width}"
+    key = ("overview" if (x0 is None) else f"{int(window[0])}_{int(window[1])}_{int(window[2])}_{int(window[3])}_{width}") + "_v2"
     png = job.dir / f"preview_{which}_{key}.png"
     if not png.exists():
         drawn = preview.render(src, png, window, width_px=width)
@@ -267,6 +267,7 @@ def preview_png(job_id: str, which: str, x0: float | None = None, y0: float | No
     meta = job.dir / f"preview_{which}_{key}.json"
     if meta.exists():
         headers["X-Window"] = meta.read_text()
+    headers["Cache-Control"] = "no-store"
     return FileResponse(str(png), media_type="image/png", headers=headers)
 
 
@@ -288,7 +289,7 @@ def _preview_pdf(job: Job, src: Path, which: str, page: int, x0, y0, x1, y1, wid
         zoom = width / max(clip.width, 1)
         pg.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), clip=clip, alpha=False).save(str(png))
     drawn = [clip.x0, -clip.y1, clip.x1, -clip.y0]
-    return FileResponse(str(png), media_type="image/png", headers={"X-Window": json.dumps(drawn), "X-Pages": str(len(doc))})
+    return FileResponse(str(png), media_type="image/png", headers={"X-Window": json.dumps(drawn), "X-Pages": str(len(doc)), "Cache-Control": "no-store"})
 
 
 @app.get("/api/jobs/{job_id}/sheets")

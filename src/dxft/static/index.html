@@ -108,9 +108,9 @@ const api = async (url, opt={}) => {
   if (!r.ok) { let t = await r.text(); try { t = JSON.parse(t).detail || t } catch(e){}; throw new Error(t) }
   return r.headers.get('content-type')?.includes('json') ? r.json() : r;
 };
-let jobs = [], current = null, rows = [], tab = 'review', filter = 'all', search = '', poll = null, which = 'after', windowStack = [], page = 1, sheet = 0, sheetList = [];
+let jobs = [], current = null, rows = [], tab = 'review', filter = 'all', search = '', poll = null, which = 'after', windowStack = [], page = 1, sheet = 0, sheetList = [], previewVersion = 2;
 
-const openFolders = new Set(JSON.parse(localStorage.getItem('dxft.open') || '[]'));
+const openFolders = new Set(JSON.parse(localStorage.getItem('dxft.open') || 'null') || ['*first*']);
 function toggleFolder(key) { openFolders.has(key) ? openFolders.delete(key) : openFolders.add(key); localStorage.setItem('dxft.open', JSON.stringify([...openFolders])); loadJobs(); }
 async function loadJobs() {
   jobs = await api('/api/jobs');
@@ -120,18 +120,18 @@ async function loadJobs() {
   const tree = {};
   for (const j of jobs) { const c = j.client || 'Unfiled', p = j.project || 'General'; ((tree[c] ??= {})[p] ??= []).push(j); }
   const clients = Object.keys(tree).sort((a, b) => a === 'Unfiled' ? 1 : b === 'Unfiled' ? -1 : a.localeCompare(b));
+  if (openFolders.has('*first*')) { openFolders.delete('*first*'); clients.forEach(c => openFolders.add(c)); localStorage.setItem('dxft.open', JSON.stringify([...openFolders])); }
   $('#clients').innerHTML = clients.map(c => `<option value="${esc(c)}">`).join('');
   $('#projects').innerHTML = [...new Set(jobs.map(j => j.project || 'General'))].map(p => `<option value="${esc(p)}">`).join('');
   for (const c of clients) {
-    const hasCurrent = current && (current.client || 'Unfiled') === c;
-    const open = openFolders.has(c) || hasCurrent || clients.length === 1;
+    const open = openFolders.has(c);
     const f = document.createElement('div'); f.className = 'folder' + (open ? '' : ' collapsed');
     const n = Object.values(tree[c]).reduce((a, l) => a + l.length, 0);
     f.innerHTML = `<div class="fh"><span>${open ? '▾' : '▸'}</span><span>${esc(c)}</span><span class="n">${n}</span></div>`;
     f.firstChild.onclick = () => toggleFolder(c);
     for (const p of Object.keys(tree[c]).sort()) {
       const pk = c + '/' + p;
-      const popen = openFolders.has(pk) || (current && (current.client || 'Unfiled') === c && (current.project || 'General') === p) || Object.keys(tree[c]).length === 1;
+      const popen = openFolders.has(pk);
       const pd = document.createElement('div'); pd.className = 'proj' + (popen ? '' : ' collapsed');
       pd.innerHTML = `<div class="ph"><span>${popen ? '▾' : '▸'}</span><span>${esc(p)}</span><span style="margin-left:auto">${tree[c][p].length}</span></div>`;
       pd.firstChild.onclick = () => toggleFolder(pk);
@@ -166,6 +166,8 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;
 
 async function openJob(id) {
   current = await api('/api/jobs/' + id);
+  openFolders.add(current.client || 'Unfiled'); openFolders.add((current.client || 'Unfiled') + '/' + (current.project || 'General'));
+  localStorage.setItem('dxft.open', JSON.stringify([...openFolders]));
   windowStack = []; page = 1; sheet = 0; sheetList = [];
   try { sheetList = (await api(`/api/jobs/${id}/sheets`)).sheets || []; if (sheetList.length > 1) sheet = 1; } catch (e) {}
   rows = await api(`/api/jobs/${id}/review`);
@@ -304,7 +306,7 @@ function renderPreview() {
   const t0 = Date.now(); const tick = setInterval(() => { const m = $('#pvmsg'); if (!m) return clearInterval(tick); m.textContent = `Drawing… ${Math.round((Date.now()-t0)/1000)} s (a big sheet can take a minute or two the first time; after that it is instant)`; }, 1000);
   let win = windowStack[windowStack.length-1];
   if (!win && current.fmt!=='pdf' && sheet>0 && sheetList[sheet-1]) win = sheetList[sheet-1];
-  const url = `/api/jobs/${current.id}/preview/${which}?page=${page}` + (win ? `&x0=${win[0]}&y0=${win[1]}&x1=${win[2]}&y1=${win[3]}` : '');
+  const url = `/api/jobs/${current.id}/preview/${which}?page=${page}&v=${previewVersion}` + (win ? `&x0=${win[0]}&y0=${win[1]}&x1=${win[2]}&y1=${win[3]}` : '');
   fetch(url).then(async r => {
     if (!r.ok) throw new Error(await r.text());
     const drawn = JSON.parse(r.headers.get('X-Window') || 'null');

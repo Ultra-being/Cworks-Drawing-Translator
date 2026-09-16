@@ -6,6 +6,7 @@ src/dxft/fit.py
 src/dxft/inventory.py
 src/dxft/layout.py
 src/dxft/patch.py
+src/dxft/pdfdoc.py
 src/dxft/pipeline.py
 src/dxft/prepare.py
 src/dxft/preview.py
@@ -17,4 +18,7 @@ src/dxft.egg-info/dependency_links.txt
 src/dxft.egg-info/entry_points.txt
 src/dxft.egg-info/requires.txt
 src/dxft.egg-info/top_level.txt
+src/dxft/fonts/LiberationSans-LICENSE.txt
+src/dxft/fonts/LiberationSans-Regular.ttf
+src/dxft/static/guide.html
 src/dxft/static/index.html

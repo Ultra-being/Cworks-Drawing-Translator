@@ -10,3 +10,7 @@ Requires-Dist: uvicorn[standard]>=0.29
 Requires-Dist: python-multipart>=0.0.9
 Requires-Dist: pydantic>=2
 Requires-Dist: matplotlib>=3.8
+Requires-Dist: pymupdf>=1.24
+Requires-Dist: pymupdf-fonts>=1.0
+Requires-Dist: fonttools>=4.40
+Requires-Dist: markdown>=3.5

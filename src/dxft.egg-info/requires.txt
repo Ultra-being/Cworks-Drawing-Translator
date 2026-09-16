@@ -5,3 +5,7 @@ uvicorn[standard]>=0.29
 python-multipart>=0.0.9
 pydantic>=2
 matplotlib>=3.8
+pymupdf>=1.24
+pymupdf-fonts>=1.0
+fonttools>=4.40
+markdown>=3.5

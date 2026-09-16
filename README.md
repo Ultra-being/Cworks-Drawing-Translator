@@ -45,3 +45,11 @@ AutoCAD 2018 DXF (`AC1032`, UTF-8) is the tested format. Export from DWG with `S
 - Russian architectural set (3 files, ~2,200 strings, MTEXT with inline fonts/heights/colours, title-block attributes, 1,100+ dimensions)
 
 Mock round trip on both: geometry fingerprint identical, every MTEXT formatting skeleton identical.
+
+## Layout fitting (stage 2a / 4 / 6)
+
+Every string is measured against the room it has: the next text on the same row, or a table-cell border (lines inside block references count). Stacked single-line TEXT entities that read as one paragraph are joined, translated once, and re-wrapped over the same lines. What does not fit at width factor 1.0 is narrowed, never below 0.6; what still does not fit is flagged `overflow` in the report for the reviewer to shorten. Table rows written as `label   value` keep their value column.
+
+## Translation memory
+
+`jobs/_memory/<source>-<target>.json` holds approved translations. Every later job reuses an exact source match verbatim (title blocks, legends, repeated labels come out identical on every sheet and cost nothing). It only learns when you ask: `dxft run ... --learn` or `dxft remember <job-id>` after review.

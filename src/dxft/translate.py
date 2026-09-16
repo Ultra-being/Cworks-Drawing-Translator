@@ -84,12 +84,19 @@ class ClaudeTranslator:
         return "".join(b.text for b in resp.content if b.type == "text")
 
     @staticmethod
-    def _parse(text: str) -> dict[str, str]:
+    def _parse(text: str) -> dict[str, tuple[str, str]]:
+        """id -> (translation, note). A value may be a string or {"t": ..., "note": ...}."""
         text = text.strip()
         text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
         start, end = text.find("{"), text.rfind("}")
         data = json.loads(text[start:end + 1])
-        return {str(k): str(v) for k, v in data.items()}
+        out: dict[str, tuple[str, str]] = {}
+        for k, v in data.items():
+            if isinstance(v, dict):
+                out[str(k)] = (str(v.get("t") or v.get("text") or ""), str(v.get("note") or ""))
+            else:
+                out[str(k)] = (str(v), "")
+        return out
 
     def translate(self, segments: list[Segment], source: str, target: str) -> list[Translation]:
         system = build_system(source, target)
@@ -100,13 +107,21 @@ class ClaudeTranslator:
         return out
 
     def _translate_batch(self, batch: list[Segment], source: str, target: str, system: str, retry: bool = True) -> list[Translation]:
-        payload = [{"id": s.id, "text": s.source, "context": s.context, "kind": s.kinds[0], "vertical": s.vertical} for s in batch]
+        payload = []
+        for s in batch:
+            item = {"id": s.id, "text": s.source, "context": s.context, "kind": s.kinds[0], "vertical": s.vertical}
+            if s.lines > 1:
+                item["lines"] = s.lines
+            if s.budget_chars:
+                item["max_chars"] = s.budget_chars
+            payload.append(item)
         user = (
             f"Source language: {LANG_NAME.get(source, source)}. Target language: {LANG_NAME.get(target, target)}.\n"
-            f"Translate the \"text\" of every item. Return ONLY a JSON object mapping id to translated text, "
+            f"Translate the \"text\" of every item. Return ONLY a JSON object mapping id to translated text "
+            f"(or to {{\"t\": text, \"note\": why}} when a human must check it), "
             f"with every ⟦n⟧ marker kept exactly, in a sensible position.\n\n{json.dumps(payload, ensure_ascii=False)}"
         )
-        mapping: dict[str, str] = {}
+        mapping: dict[str, tuple[str, str]] = {}
         try:
             mapping = self._parse(self._call(system, user))
         except Exception as ex:
@@ -118,21 +133,68 @@ class ClaudeTranslator:
         results: list[Translation] = []
         redo: list[Segment] = []
         for s in batch:
-            t = mapping.get(s.id)
-            if t is None or not t.strip():
+            t, note = mapping.get(s.id, ("", ""))
+            t = _clean(t, target)
+            if s.kinds and s.kinds[0] in ("TEXT", "ATTRIB"):
+                t = _repad(s.source, t)
+            if not t.strip():
                 redo.append(s)
             elif not markers_ok(s.source, t):
                 redo.append(s)
             else:
-                results.append(Translation(s.id, t))
+                results.append(Translation(s.id, t, note=note or _name_note(source, s.source)))
         if redo and retry:
             for s in redo:
                 results.extend(self._translate_batch([s], source, target, system, retry=False))
         elif redo:
             for s in redo:
-                t = mapping.get(s.id, "")
+                t, _ = mapping.get(s.id, ("", ""))
                 results.append(Translation(s.id, t or s.source, ok=False, note="missing or markers lost; needs a human"))
         return results
+
+
+def _clean(t: str, target: str) -> str:
+    """Normalise whitespace for non-CJK targets: ideographic spaces become
+    spaces and ends are trimmed. Internal runs of spaces are kept: they are
+    column padding in table rows (see _repad)."""
+    if target in ("ja", "zh"):
+        return t.strip()
+    t = t.replace("\u3000", " ")
+    return "\n".join(line.strip() for line in t.split("\n")).strip()
+
+
+TABLE_GAP = re.compile(r"[ \u3000]{3,}")
+
+
+def _repad(source: str, target: str) -> str:
+    """A table row is 'label<padding>value' in one string; the padding puts the
+    value in its column. Re-pad the translation so its value starts at the same
+    visual offset as the source's, whatever the translated label's width."""
+    from .layout import em_width
+    space_w = em_width("| |") - em_width("||")
+    source, target = source.rstrip(), target.rstrip()
+    ms = list(TABLE_GAP.finditer(source))
+    if not ms:
+        return target
+    parts = TABLE_GAP.split(target)
+    if len(parts) != len(ms) + 1:
+        return target
+    out, pos, spos = parts[0], em_width(parts[0]), 0.0
+    for m, nxt in zip(ms, parts[1:]):
+        spos = em_width(source[:m.end()])       # where the next column starts in the source
+        gap = max(1, round((spos - pos) / space_w))  # spaces needed to reach it
+        out += " " * gap + nxt
+        pos = em_width(out)
+    return out
+
+
+# Personal names on a Japanese drawing: 1-3 kanji, a space, 1-3 kanji, as a
+# whole token. The reading cannot be verified from the drawing.
+JA_NAME = re.compile(r"(?<![一-鿿])[一-鿿]{1,3}[ \u3000][一-鿿]{1,3}(?![一-鿿])")
+
+
+def _name_note(source_lang: str, source: str) -> str:
+    return "name reading unverified" if source_lang == "ja" and JA_NAME.search(source) else ""
 
 
 class MockTranslator:

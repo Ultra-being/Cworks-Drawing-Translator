@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass, asdict, field
 
 from .inventory import TextItem, detect_lang
+from . import layout
 
 # MTEXT inline codes: \P (newline), \~ (nbsp), \\ , \{ \} , {...} groups,
 # and \X...; commands (font \f, height \H, colour \C, width \W, alignment
@@ -54,6 +55,10 @@ class Segment:
     context: str = ""      # layer names etc., a hint for the translator
     max_height: float = 0.0
     vertical: bool = False
+    groups: list[list[str]] = field(default_factory=list)  # each instance: its handles, top line first
+    caps: list[float] = field(default_factory=list)        # per instance: room per line, in ems (0 = unknown)
+    lines: int = 1         # lines available per instance (paragraphs > 1)
+    budget_chars: int = 0  # length hint for the model, 0 = no constraint known
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -102,32 +107,84 @@ def is_translatable(item: TextItem, source_langs: set[str]) -> bool:
     return item.lang in source_langs
 
 
-def prepare(items: list[TextItem], source_langs: set[str]) -> tuple[list[Segment], dict[str, str], list[str]]:
-    """Returns (segments, handle->segment id, skipped handles)."""
+def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list[list[float]]] | None = None
+            ) -> tuple[list[Segment], dict[str, str], list[str]]:
+    """Returns (segments, handle->segment id, skipped handles).
+
+    Stacked single-line TEXT entities that read as one paragraph become one
+    segment (see layout.paragraphs); the translation is re-wrapped over the
+    same lines at patch time. Every segment carries how much room it has.
+    """
     by_source: dict[str, Segment] = {}
     handle_map: dict[str, str] = {}
     skipped: list[str] = []
+    translatable = {it.handle for it in items if is_translatable(it, source_langs)}
+    skipped = [it.handle for it in items if it.handle not in translatable]
+    avail = layout.available_widths(items, walls or {})
+    item_by_handle = {it.handle: it for it in items}
+
+    # Paragraph groups cover the flat TEXT items; everything else is its own group.
+    paras = layout.paragraphs(items, translatable)
+    grouped = {h for p in paras for h in p.handles}
+    units: list[tuple[list[TextItem], str, list[str]]] = []  # (items, marked source, codes)
     for it in items:
-        if not is_translatable(it, source_langs):
-            skipped.append(it.handle)
+        if it.handle not in translatable or it.handle in grouped:
             continue
         if it.kind in ("MTEXT", "MLEADER"):
             marked, codes = mark_codes(it.raw)
         else:
             marked, codes = it.raw, []
-        key = marked
-        seg = by_source.get(key)
+        units.append(([it], marked, codes))
+    for p in paras:
+        if len(p.items) == 1:
+            units.append((p.items, p.items[0].raw, []))
+        else:
+            units.append((p.items, layout.join_lines([t.plain for t in p.items], p.items[0].lang), []))
+    # keep drawing order stable so ids are reproducible
+    order = {it.handle: i for i, it in enumerate(items)}
+    units.sort(key=lambda u: order[u[0][0].handle])
+
+    for group, marked, codes in units:
+        first = group[0]
+        seg = by_source.get(marked)
         if seg is None:
             seg = Segment(
-                id=f"s{len(by_source) + 1:05d}", source=marked, plain=it.plain, lang=it.lang, codes=codes,
-                context=it.layer, max_height=it.height, vertical=it.vertical,
+                id=f"s{len(by_source) + 1:05d}", source=marked,
+                plain=layout.join_lines([t.plain for t in group], first.lang) if len(group) > 1 else first.plain,
+                lang=first.lang, codes=codes, context=first.layer, max_height=first.height, vertical=first.vertical,
             )
-            by_source[key] = seg
-        seg.handles.append(it.handle)
-        seg.kinds.append(it.kind)
-        seg.max_height = max(seg.max_height, it.height)
-        seg.vertical = seg.vertical or it.vertical
-        if it.layer and it.layer not in seg.context:
-            seg.context = f"{seg.context}, {it.layer}" if seg.context else it.layer
-        handle_map[it.handle] = seg.id
+            by_source[marked] = seg
+        seg.groups.append([t.handle for t in group])
+        seg.caps.append(_cap_em(group, avail))
+        seg.lines = max(seg.lines, len(group))
+        for t in group:
+            seg.handles.append(t.handle)
+            seg.kinds.append(t.kind)
+            seg.max_height = max(seg.max_height, t.height)
+            seg.vertical = seg.vertical or t.vertical
+            if t.layer and t.layer not in seg.context:
+                seg.context = f"{seg.context}, {t.layer}" if seg.context else t.layer
+            handle_map[t.handle] = seg.id
+
+    for seg in by_source.values():
+        known = [c for c in seg.caps if c > 0]
+        if known:
+            # ems -> characters at ~0.6 em each, plus the 10% that narrowing can absorb
+            seg.budget_chars = int(min(known) * seg.lines / 0.6 * 1.1)
     return list(by_source.values()), handle_map, skipped
+
+
+def _cap_em(group: list[TextItem], avail: dict[str, float]) -> float:
+    """Room per line for one instance, in ems of its own height. 0 = unknown."""
+    first = group[0]
+    if first.kind not in ("TEXT", "ATTRIB") or first.height <= 0:
+        return 0.0
+    scale = first.height * (first.width_factor or 1.0)
+    line_ems = [layout.em_width(t.plain) for t in group]
+    known = [avail[t.handle] / scale for t in group if t.handle in avail]
+    if known:
+        return round(max(min(known), max(line_ems)), 2)
+    # nothing found nearby: a free label may grow (Japanese to English needs
+    # about 2.4x, Russian to English about 1.4x); a paragraph column only a little
+    grow = (2.4 if first.lang in ("ja", "zh") else 1.4) if len(group) == 1 else 1.2
+    return round(max(line_ems) * grow, 2)

@@ -30,6 +30,31 @@ from . import patch as pt
 JOBS = Path("jobs")
 
 
+class Memory:
+    """Exact-match translation memory per language pair: every approved
+    translation is remembered, and the next sheet of the same set reuses it
+    without asking the model. Title blocks, legends and repeated labels come
+    out identical on every sheet, and cost nothing."""
+
+    def __init__(self, root: Path, source: str, target: str):
+        self.path = root / "_memory" / f"{source}-{target}.json"
+        self.data: dict[str, str] = _r(self.path) if self.path.exists() else {}
+
+    def get(self, source_text: str) -> str | None:
+        return self.data.get(source_text)
+
+    def learn(self, pairs: dict[str, str]) -> int:
+        n = 0
+        for k, v in pairs.items():
+            if v.strip() and self.data.get(k) != v:
+                self.data[k] = v
+                n += 1
+        if n:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            _w(self.path, self.data)
+        return n
+
+
 def _w(path: Path, data) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -76,8 +101,9 @@ class Job:
         doc, audit_errors = inv.load(str(self.dir / "input.dxf"))
         items = inv.inventory(doc)
         summ = inv.summary(items)
+        walls = inv.walls(doc)
         _w(self.dir / "inventory.json", {"summary": summ, "audit_errors": audit_errors, "version": doc.dxfversion,
-                                          "items": [it.to_dict() for it in items]})
+                                          "items": [it.to_dict() for it in items], "walls": walls})
         self._stage_done("inventory", **summ)
         return summ
 
@@ -86,9 +112,10 @@ class Job:
         items = [inv.TextItem(**d) for d in data["items"]]
         source = self.meta["source"]
         langs = {source} if source != "auto" else {"ru", "ja"} if self.meta["target"] == "en" else {"ru", "en"}
-        segments, handle_map, skipped = prep.prepare(items, langs)
+        segments, handle_map, skipped = prep.prepare(items, langs, data.get("walls", {}))
         _w(self.dir / "segments.json", {"segments": [s.to_dict() for s in segments], "handle_map": handle_map, "skipped": skipped})
-        info = {"segments": len(segments), "entities": len(handle_map), "skipped": len(skipped)}
+        info = {"segments": len(segments), "entities": len(handle_map), "skipped": len(skipped),
+                "paragraphs": sum(1 for s in segments if s.lines > 1)}
         self._stage_done("prepare", **info)
         return info
 
@@ -98,13 +125,19 @@ class Job:
         meta = self.meta
         source = meta["source"] if meta["source"] != "auto" else (segments[0].lang if segments else "ru")
         translator = tr.get_translator(mode, model)
-        results = translator.translate(segments, source, meta["target"])
+        memory = Memory(self.dir.parent, source, meta["target"])
+        remembered = [tr.Translation(s.id, memory.get(s.source), note="; ".join(n for n in ("from memory", tr._name_note(source, s.source)) if n))
+                      for s in segments if memory.get(s.source)]
+        seen = {t.id for t in remembered}
+        fresh = translator.translate([s for s in segments if s.id not in seen], source, meta["target"]) if len(seen) < len(segments) else []
+        by_id = {t.id: t for t in remembered + fresh}
+        results = [by_id[s.id] for s in segments if s.id in by_id]
         _w(self.dir / "translations.json", {"mode": mode, "model": getattr(translator, "model", mode), "usage": translator.usage,
-                                            "translations": [asdict(t) for t in results]})
-        fits = fitmod.assess(segments, results)
+                                            "from_memory": len(remembered), "translations": [asdict(t) for t in results]})
+        fits = fitmod.assess(segments, results, meta["target"])
         _w(self.dir / "fit.json", [asdict(f) for f in fits])
-        info = {"translated": sum(1 for t in results if t.ok), "needs_attention": sum(1 for t in results if not t.ok),
-                "flagged_long": sum(1 for f in fits if f.flag), "usage": translator.usage}
+        info = {"translated": sum(1 for t in results if t.ok), "from_memory": len(remembered), "needs_attention": sum(1 for t in results if not t.ok),
+                "flagged": {k: sum(1 for f in fits if f.flag == k) for k in ("long", "tight", "overflow")}, "usage": translator.usage}
         self._stage_done("translate", **info)
         return info
 
@@ -123,8 +156,9 @@ class Job:
                 "id": s["id"], "source": s["plain"], "source_marked": s["source"], "lang": s["lang"],
                 "target": r.get("text", t.get("target", "")), "model_target": t.get("target", ""),
                 "ok": t.get("ok", False), "note": t.get("note", ""), "count": len(s["handles"]), "kinds": sorted(set(s["kinds"])),
-                "context": s["context"], "vertical": s["vertical"],
+                "context": s["context"], "vertical": s["vertical"], "lines": s.get("lines", 1), "cap_em": f.get("cap_em", 0),
                 "fit": f.get("flag", ""), "ratio": f.get("ratio", 1.0), "width_factor": r.get("width_factor", f.get("suggested_width_factor", 1.0)),
+                "width_override": "width_factor" in r,
                 "approved": r.get("approved", False), "edited": "text" in r,
             })
         return rows
@@ -142,22 +176,35 @@ class Job:
         review[seg_id] = entry
         _w(p, review)
 
-    def approve_all_ok(self, apply_width_factors: bool = False) -> int:
-        """Approve every segment the model translated cleanly (a reviewer can still edit later)."""
+    def approve_all_ok(self) -> int:
+        """Approve every segment the model translated cleanly (a reviewer can still edit later).
+        Width factors are computed at patch time unless a reviewer sets one."""
         n = 0
         for row in self.review_table():
             if row["ok"] and not row["approved"]:
-                self.set_review(row["id"], approved=True, width_factor=row["width_factor"] if apply_width_factors else 1.0)
+                self.set_review(row["id"], approved=True)
                 n += 1
         return n
 
-    def patch(self, only_approved: bool = True) -> dict:
+    def remember(self) -> int:
+        """Store this job's approved translations in the memory for the language
+        pair. Call it after review, so only checked translations are reused."""
+        m = self.meta
+        if m["source"] == "auto" or _r(self.dir / "translations.json").get("mode") == "mock":
+            return 0
+        rows = self.review_table()
+        return Memory(self.dir.parent, m["source"], m["target"]).learn(
+            {r["source_marked"]: r["target"] for r in rows if r["approved"] and r["target"].strip()})
+
+    def patch(self, only_approved: bool = True, learn: bool = False) -> dict:
         inv_data = _r(self.dir / "inventory.json")
         items = [inv.TextItem(**d) for d in inv_data["items"]]
         segments = [prep.Segment(**s) for s in _r(self.dir / "segments.json")["segments"]]
         rows = self.review_table()
         approved = {r["id"]: r["target"] for r in rows if (r["approved"] or not only_approved) and r["target"].strip()}
-        wfs = {r["id"]: float(r["width_factor"]) for r in rows if r["id"] in approved}
+        if learn:
+            self.remember()
+        wfs = {r["id"]: float(r["width_factor"]) for r in rows if r["id"] in approved and r["width_override"]}
         doc, _ = inv.load(str(self.dir / "input.dxf"))
         res = pt.apply(doc, items, segments, approved, self.meta["target"], wfs)
         out = self.dir / "output.dxf"
@@ -165,7 +212,8 @@ class Job:
         ver = pt.verify(str(self.dir / "input.dxf"), str(out))
         report = self._report(res, ver, rows)
         (self.dir / "report.md").write_text(report, encoding="utf-8")
-        info = {"patched": res.patched, "skipped": len(res.skipped), "style_changes": res.style_changes, "verified": ver.ok, "problems": ver.problems}
+        info = {"patched": res.patched, "skipped": len(res.skipped), "narrowed": res.width_factors, "overflow": len(res.overflow),
+                "style_changes": res.style_changes, "verified": ver.ok, "problems": ver.problems}
         self._stage_done("patch", **info)
         return info
 
@@ -182,7 +230,9 @@ class Job:
             f"- Approved and written: {sum(1 for r in rows if r['approved'])}",
             f"- Entities patched: {res.patched}",
             f"- Left untranslated (not approved or needs a human): {sum(1 for r in rows if not r['approved'])}",
-            f"- Width factors applied: {res.width_factors}",
+            f"- Entities narrowed to fit: {res.width_factors}",
+            f"- Still overflowing (shorten these): {len(res.overflow)}",
+            *[f"  - {i}: {next((r['target'][:70] for r in rows if r['id'] == i), '')!r}" for i in res.overflow],
             f"- Text styles changed for the target font: {len(res.style_changes)}",
             *[f"  - {s}" for s in res.style_changes],
             "",

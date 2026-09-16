@@ -20,6 +20,8 @@ import ezdxf
 from ezdxf.document import Drawing
 
 from .inventory import TextItem, load
+from .layout import wrap_to, _greedy, em_width
+from .translate import TABLE_GAP, _repad
 from .prepare import Segment, unmark_codes
 
 JA_FONT = ("txt", "extfont2")  # SHX shape font + Japanese bigfont
@@ -32,6 +34,7 @@ class PatchResult:
     skipped: list[str] = field(default_factory=list)   # handles not found / not approved
     style_changes: list[str] = field(default_factory=list)
     width_factors: int = 0
+    overflow: list[str] = field(default_factory=list)  # segment ids that still do not fit
 
 
 def _font_can_display_ja(doc: Drawing, style_name: str) -> bool:
@@ -59,54 +62,97 @@ def _ensure_ja_style(doc: Drawing, style_name: str, result: PatchResult) -> None
 def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved: dict[str, str],
           target: str, width_factors: dict[str, float] | None = None) -> PatchResult:
     """`approved` maps segment id -> final text (with ⟦n⟧ markers for MTEXT).
-    `width_factors` maps segment id -> horizontal width factor to apply to TEXT/ATTRIB."""
+    `width_factors` maps segment id -> a reviewer's explicit width factor; when
+    absent, TEXT/ATTRIB is re-wrapped over its lines and narrowed only as much
+    as needed (layout.wrap_to)."""
     result = PatchResult()
-    seg_by_id = {s.id: s for s in segments}
-    seg_of_handle = {h: s.id for s in segments for h in s.handles}
     item_by_handle = {it.handle: it for it in items}
     width_factors = width_factors or {}
     styles_checked: set[str] = set()
+    cjk = target in ("ja", "zh")
 
-    for handle, seg_id in seg_of_handle.items():
-        final = approved.get(seg_id)
-        if final is None:
-            result.skipped.append(handle)
-            continue
-        seg = seg_by_id[seg_id]
-        item = item_by_handle.get(handle)
+    def entity(handle: str):
         try:
-            e = doc.entitydb.get(handle)
+            return doc.entitydb.get(handle)
         except Exception:
-            e = None
-        if e is None or item is None:
-            result.skipped.append(handle)
-            continue
-        text = unmark_codes(final, seg.codes) if seg.codes else final
-        kind = e.dxftype()
-        if kind == "TEXT" or kind == "ATTRIB":
-            e.dxf.text = text
-            wf = width_factors.get(seg_id)
-            if wf and abs(wf - 1.0) > 0.01:
-                e.dxf.width = float(e.dxf.width or 1.0) * wf
-                result.width_factors += 1
-        elif kind == "MTEXT":
-            e.text = text
-        elif kind == "DIMENSION":
-            e.dxf.text = text
-        elif kind == "MLEADER":
-            try:
-                e.set_mtext_content(text)
-            except Exception:
-                result.skipped.append(handle)
-                continue
-        else:
-            result.skipped.append(handle)
-            continue
+            return None
+
+    def ja_style(item: TextItem) -> None:
         if target == "ja" and item.style and item.style not in styles_checked:
             styles_checked.add(item.style)
             _ensure_ja_style(doc, item.style, result)
-        result.patched += 1
+
+    for seg in segments:
+        final = approved.get(seg.id)
+        if final is None:
+            result.skipped.extend(seg.handles)
+            continue
+        text = unmark_codes(final, seg.codes) if seg.codes else final
+        kind = seg.kinds[0] if seg.kinds else ""
+
+        if kind in ("TEXT", "ATTRIB") and seg.groups:
+            if seg.lines == 1:
+                text = _repad(seg.source, text)   # table rows keep their value column
+            for group, cap in zip(seg.groups, seg.caps):
+                override = width_factors.get(seg.id)
+                if override and abs(override - 1.0) > 0.01:
+                    lines, wf, overflow = _greedy(text, cap / override if cap > 0 else 1e9, cjk), override, False
+                    if len(lines) > len(group):
+                        lines, overflow = lines[:len(group) - 1] + [(" " if not cjk else "").join(lines[len(group) - 1:])], True
+                else:
+                    lines, wf, overflow = wrap_to(text, cap, len(group), cjk)
+                if overflow and seg.id not in result.overflow:
+                    result.overflow.append(seg.id)
+                if abs(wf - 1.0) > 0.01 and len(lines) == 1:
+                    lines = [_repad_narrowed(lines[0], wf)]
+                for i, handle in enumerate(group):
+                    e, item = entity(handle), item_by_handle.get(handle)
+                    if e is None or item is None or e.dxftype() not in ("TEXT", "ATTRIB"):
+                        result.skipped.append(handle)
+                        continue
+                    e.dxf.text = lines[i] if i < len(lines) else ""
+                    if abs(wf - 1.0) > 0.01:
+                        e.dxf.width = float(e.dxf.width or 1.0) * wf
+                        result.width_factors += 1
+                    ja_style(item)
+                    result.patched += 1
+            continue
+
+        for handle in seg.handles:
+            e, item = entity(handle), item_by_handle.get(handle)
+            if e is None or item is None:
+                result.skipped.append(handle)
+                continue
+            k = e.dxftype()
+            if k in ("TEXT", "ATTRIB", "DIMENSION"):
+                e.dxf.text = text
+            elif k == "MTEXT":
+                e.text = text
+            elif k == "MLEADER":
+                try:
+                    e.set_mtext_content(text)
+                except Exception:
+                    result.skipped.append(handle)
+                    continue
+            else:
+                result.skipped.append(handle)
+                continue
+            ja_style(item)
+            result.patched += 1
     return result
+
+
+def _repad_narrowed(line: str, wf: float) -> str:
+    """A table row ('label<spaces>value') that is narrowed as a whole would
+    pull its value column left. Add spaces so the column stays where it was."""
+    m = TABLE_GAP.search(line)
+    if not m:
+        return line
+    space_w = em_width("| |") - em_width("||")
+    col = em_width(line[:m.end()])              # column position before narrowing
+    label = line[:m.start()]
+    gap = max(1, round((col / wf - em_width(label)) / space_w))
+    return label + " " * gap + line[m.end():]
 
 
 # ───────────────────────────── verify ─────────────────────────────

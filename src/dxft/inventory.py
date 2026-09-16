@@ -54,6 +54,8 @@ class TextItem:
     block_owner: str = ""  # for ATTRIB: the INSERT handle
     tag: str = ""          # for ATTRIB: the attribute tag
     box_width: float = 0.0 # MTEXT wrap width, 0 = unlimited
+    halign: int = 0        # TEXT/ATTRIB: 0 left, 1 centre, 2 right, 3 aligned, 4 middle, 5 fit
+    ax: float = 0.0        # TEXT/ATTRIB: alignment point x (== x when left aligned)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -71,6 +73,61 @@ def _is_vertical(doc: Drawing, style_name: str) -> bool:
     return big.startswith("@") or font.startswith("@") or bool(getattr(st.dxf, "flags", 0) & 4)
 
 
+def _align_x(e) -> float:
+    """X of the alignment point for centred/right text, else the insert x."""
+    try:
+        if int(e.dxf.halign) in (1, 2, 4) and e.dxf.hasattr("align_point"):
+            return float(e.dxf.align_point.x)
+    except Exception:
+        pass
+    return float(e.dxf.insert.x)
+
+
+def walls(doc: Drawing, limit: int = 400_000) -> dict[str, list[list[float]]]:
+    """Vertical line segments per space: [x, y_low, y_high]. Table borders and
+    title-block cells are made of these; they bound how far text can grow.
+    Lines inside block references count too (some converters wrap every
+    line in its own block), placed where the reference puts them."""
+    out: dict[str, list[list[float]]] = {}
+    spaces = [("model", doc.modelspace())] + [(f"paper:{lo.name}", lo) for lo in doc.layouts if lo.name != "Model"]
+
+    def add(ws: list[list[float]], e) -> None:
+        t = e.dxftype()
+        if t == "LINE":
+            a, b = e.dxf.start, e.dxf.end
+            if abs(a.x - b.x) <= 0.01 * max(abs(a.y - b.y), 1e-9):
+                ws.append([float(a.x), float(min(a.y, b.y)), float(max(a.y, b.y))])
+        elif t == "LWPOLYLINE":
+            pts = list(e.get_points("xy"))
+            if e.closed and pts:
+                pts.append(pts[0])
+            for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+                if abs(x0 - x1) <= 0.01 * max(abs(y0 - y1), 1e-9):
+                    ws.append([float(x0), float(min(y0, y1)), float(max(y0, y1))])
+
+    for where, space in spaces:
+        ws: list[list[float]] = []
+        for e in space:
+            if len(ws) >= limit:
+                break
+            try:
+                if e.dxftype() == "INSERT":
+                    for v in e.virtual_entities():
+                        if v.dxftype() in ("LINE", "LWPOLYLINE"):
+                            add(ws, v)
+                        elif v.dxftype() == "INSERT":  # one level of nesting is plenty
+                            for vv in v.virtual_entities():
+                                if vv.dxftype() in ("LINE", "LWPOLYLINE"):
+                                    add(ws, vv)
+                else:
+                    add(ws, e)
+            except Exception:
+                continue
+        ws.sort()
+        out[where] = ws
+    return out
+
+
 def _walk(doc: Drawing, space: Iterable, where: str, out: list[TextItem]) -> None:
     for e in space:
         t = e.dxftype()
@@ -81,6 +138,7 @@ def _walk(doc: Drawing, space: Iterable, where: str, out: list[TextItem]) -> Non
                     raw=e.dxf.text, plain=e.dxf.text, lang=detect_lang(e.dxf.text),
                     height=float(e.dxf.height), width_factor=float(e.dxf.width), rotation=float(e.dxf.rotation),
                     x=float(e.dxf.insert.x), y=float(e.dxf.insert.y), vertical=_is_vertical(doc, e.dxf.style),
+                    halign=int(e.dxf.halign), ax=_align_x(e),
                 ))
             elif t == "MTEXT":
                 out.append(TextItem(
@@ -96,6 +154,7 @@ def _walk(doc: Drawing, space: Iterable, where: str, out: list[TextItem]) -> Non
                         raw=a.dxf.text, plain=a.dxf.text, lang=detect_lang(a.dxf.text),
                         height=float(a.dxf.height), width_factor=float(a.dxf.width), rotation=float(a.dxf.rotation),
                         x=float(a.dxf.insert.x), y=float(a.dxf.insert.y), block_owner=e.dxf.handle, tag=a.dxf.tag,
+                        halign=int(a.dxf.halign), ax=_align_x(a),
                     ))
             elif t == "DIMENSION":
                 txt = e.dxf.text or ""

@@ -1,35 +1,20 @@
 """Stage 4 · Fit.
 
-Estimate how wide each translated string will render compared with the
-original and flag the ones that grew. The estimate is a character-width
-model, not a font metric: CJK and full-width characters count as 1.0 em,
-Latin/Cyrillic as ~0.55 em on average. It is good enough to rank risk and
-to suggest a width factor; the reviewer sees the flagged ones.
+For every translated segment, work out whether it fits the room it has
+(see layout.available_widths) and what it takes to make it fit: re-wrap
+over the paragraph's lines, then narrow the width factor, never below the
+readability floor. What still does not fit is flagged "overflow" for the
+reviewer, who can shorten the text.
+
+MTEXT wraps itself inside its box, so it only gets the growth ratio.
 """
 from __future__ import annotations
 
-import unicodedata
 from dataclasses import dataclass
 
+from .layout import em_width, wrap_to, WF_FLOOR
 from .prepare import MARK_RE, Segment
 from .translate import Translation
-
-
-def em_width(s: str) -> float:
-    w = 0.0
-    for ch in MARK_RE.sub("", s):
-        if ch in ("\n",):
-            continue
-        ea = unicodedata.east_asian_width(ch)
-        if ea in ("W", "F"):
-            w += 1.0
-        elif ch == " ":
-            w += 0.3
-        elif ch.isupper():
-            w += 0.65
-        else:
-            w += 0.52
-    return w
 
 
 @dataclass
@@ -38,21 +23,36 @@ class Fit:
     source_em: float
     target_em: float
     ratio: float
-    flag: str  # "" | "long" | "very_long"
+    flag: str                   # "" | "long" | "tight" | "overflow"
     suggested_width_factor: float
+    lines_used: int = 1
+    lines_available: int = 1
+    cap_em: float = 0.0
 
 
-def assess(segments: list[Segment], translations: list[Translation]) -> list[Fit]:
+def assess(segments: list[Segment], translations: list[Translation], target_lang: str = "en") -> list[Fit]:
     by_id = {t.id: t for t in translations}
+    cjk = target_lang in ("ja", "zh")
     out: list[Fit] = []
     for s in segments:
         t = by_id.get(s.id)
         if not t:
             continue
-        se, te = em_width(s.source), em_width(t.target)
+        plain_t = MARK_RE.sub("", t.target)
+        se, te = em_width(MARK_RE.sub("", s.source)), em_width(plain_t)
         ratio = te / se if se > 0 else 1.0
-        flag = "very_long" if ratio > 1.6 else "long" if ratio > 1.25 else ""
-        # Suggest shrinking horizontally, never below 0.7 (readability floor).
-        wf = round(max(0.7, min(1.0, 1.0 / ratio)), 2) if ratio > 1.05 else 1.0
-        out.append(Fit(s.id, round(se, 1), round(te, 1), round(ratio, 2), flag, wf))
+        kind = s.kinds[0] if s.kinds else "TEXT"
+        if kind not in ("TEXT", "ATTRIB") or not s.caps:
+            flag = "long" if ratio > 1.6 else ""
+            out.append(Fit(s.id, round(se, 1), round(te, 1), round(ratio, 2), flag, 1.0))
+            continue
+        wf_min, used_max, overflow = 1.0, 1, False
+        for group, cap in zip(s.groups, s.caps):
+            lines, wf, ov = wrap_to(plain_t, cap, len(group), cjk)
+            wf_min = min(wf_min, wf)
+            used_max = max(used_max, len(lines))
+            overflow = overflow or ov
+        flag = "overflow" if overflow else "tight" if wf_min < 0.85 else "long" if wf_min < 1.0 else ""
+        out.append(Fit(s.id, round(se, 1), round(te, 1), round(ratio, 2), flag, wf_min,
+                       lines_used=used_max, lines_available=s.lines, cap_em=round(min(s.caps), 1)))
     return out

@@ -7,6 +7,9 @@
 - Latin-script company and product names
 - Special AutoCAD codes: %%C (diameter), %%D (degree), %%P (plus-minus), %%U (underline)
 
+## Russian drawing references (keep exactly as written)
+- Grid axes (А, Б, В, 1, 2), stair and legend keys (Л1, Ст2), and element marks that point to a schedule — windows ОК-9.1, doors Д-9л, openings ПР-1, Ш-7 — stay in Cyrillic, unchanged, wherever they appear ("Фасад Д-А" → "Elevation Д-А"). A reader matches them against the schedule on the same sheet.
+
 ## Translate consistently
 - Use the glossary. A term translated one way in the title block is translated the same way in the notes.
 - Japanese full-width Latin letters and digits (ＡＢＣ１２３) become half-width (ABC123) in English output.

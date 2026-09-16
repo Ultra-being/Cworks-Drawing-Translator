@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 import ezdxf
 from ezdxf.document import Drawing
 
-from .inventory import TextItem, load
+from .inventory import TextItem, load, set_table_cell
 from .layout import wrap_to, _greedy, em_width
 from .translate import TABLE_GAP, _repad
 from .prepare import Segment, unmark_codes
@@ -119,7 +119,14 @@ def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved
             continue
 
         for handle in seg.handles:
-            e, item = entity(handle), item_by_handle.get(handle)
+            item = item_by_handle.get(handle)
+            if item is not None and item.kind == "TABLE_CELL":
+                if _patch_table_cell(doc, handle, text):
+                    result.patched += 1
+                else:
+                    result.skipped.append(handle)
+                continue
+            e = entity(handle)
             if e is None or item is None:
                 result.skipped.append(handle)
                 continue
@@ -140,6 +147,30 @@ def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved
             ja_style(item)
             result.patched += 1
     return result
+
+
+def _patch_table_cell(doc: Drawing, handle: str, text: str) -> bool:
+    """ACAD_TABLE cell: write the cell tags, then the same string in the
+    table's display block so the drawing shows it before AutoCAD regenerates."""
+    table_handle, idx = handle.split(":")
+    try:
+        table = doc.entitydb.get(table_handle)
+    except Exception:
+        table = None
+    if table is None:
+        return False
+    old = set_table_cell(table, int(idx), text)
+    if old is None:
+        return False
+    block_name = table.dxf.get("geometry", "")
+    if block_name:
+        try:
+            for e in doc.blocks.get(block_name):
+                if e.dxftype() == "MTEXT" and e.text == old:
+                    e.text = text
+        except Exception:
+            pass
+    return True
 
 
 def _repad_narrowed(line: str, wf: float) -> str:

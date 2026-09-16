@@ -64,6 +64,38 @@ class Segment:
         return asdict(self)
 
 
+FONT_CODEPAGE = re.compile(r"(\\[fF][^;|]*(?:\|[^;|]*)*?)\|c\d+")
+
+
+def simplify_mtext(raw: str) -> str:
+    """Drop formatting that says nothing: the codepage flag in font codes
+    (c0 for Latin, c204 for Cyrillic; irrelevant in a Unicode DXF), and font
+    codes that repeat the font already in force. Cyrillic MTEXT from Russian
+    CAD typically switches font code around every Latin character, which
+    would put a marker between every second letter."""
+    raw = FONT_CODEPAGE.sub(r"\1|c0", raw)
+    out: list[str] = []
+    font_stack: list[str] = [""]
+    pos = 0
+    for m in MTEXT_CODE.finditer(raw):
+        out.append(raw[pos:m.start()])
+        code = m.group(0)
+        if code == "{":
+            font_stack.append(font_stack[-1]); out.append(code)
+        elif code == "}":
+            if len(font_stack) > 1:
+                font_stack.pop()
+            out.append(code)
+        elif code[:2] in ("\\f", "\\F"):
+            if code != font_stack[-1]:
+                font_stack[-1] = code; out.append(code)
+        else:
+            out.append(code)
+        pos = m.end()
+    out.append(raw[pos:])
+    return "".join(out)
+
+
 def mark_codes(raw: str) -> tuple[str, list[str]]:
     """Replace MTEXT format codes with ⟦n⟧ markers. Returns (marked, codes)."""
     codes: list[str] = []
@@ -72,7 +104,7 @@ def mark_codes(raw: str) -> tuple[str, list[str]]:
         codes.append(m.group(0))
         return MARK.format(len(codes))
 
-    return MTEXT_CODE.sub(repl, raw), codes
+    return MTEXT_CODE.sub(repl, simplify_mtext(raw)), codes
 
 
 def unmark_codes(marked: str, codes: list[str]) -> str:
@@ -97,8 +129,17 @@ def unmark_codes(marked: str, codes: list[str]) -> str:
     return out
 
 
+# Grid axes and legend keys on Russian drawings: a Cyrillic letter or two,
+# optionally numbered (А, Б, Л1, Ст2). References, never words.
+CYR_CODE = re.compile(r"^\s*[А-ЯЁ]{1,2}\d{0,3}\s*$")
+# Window/door/opening marks that refer to schedules: ОК-9.1, Д-9л, Ш-7, ОК-2*, ПР-1
+CYR_MARK = re.compile(r"^\s*[А-ЯЁ]{1,3}-?\d+(?:[.,]\d+)*[а-яё*]?\s*$")
+
+
 def is_translatable(item: TextItem, source_langs: set[str]) -> bool:
     if not item.plain.strip():
+        return False
+    if CYR_CODE.match(item.plain) or CYR_MARK.match(item.plain):
         return False
     if item.kind == "DIMENSION":
         return item.lang in source_langs  # numeric overrides are 'none'
@@ -130,7 +171,7 @@ def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list
     for it in items:
         if it.handle not in translatable or it.handle in grouped:
             continue
-        if it.kind in ("MTEXT", "MLEADER"):
+        if it.kind in ("MTEXT", "MLEADER", "TABLE_CELL"):
             marked, codes = mark_codes(it.raw)
         else:
             marked, codes = it.raw, []

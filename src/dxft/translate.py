@@ -56,6 +56,23 @@ def build_system(source: str, target: str) -> str:
     return "\n\n".join(p.strip() for p in parts if p.strip())
 
 
+EDGE_MARKS = re.compile(r"^((?:⟦\d+⟧)+)|((?:⟦\d+⟧)+)$")
+
+
+def strip_edges(source: str) -> tuple[str, str, str]:
+    """Split leading and trailing marker runs off: (prefix, core, suffix).
+    The model only sees the core; the edges are re-attached verbatim."""
+    m1 = re.match(r"^(?:⟦\d+⟧)+", source)
+    prefix = m1.group(0) if m1 else ""
+    rest = source[len(prefix):]
+    m2 = re.search(r"(?:⟦\d+⟧)+$", rest)
+    suffix = m2.group(0) if m2 else ""
+    core = rest[:len(rest) - len(suffix)]
+    if not core.strip():  # nothing but markers and spaces: keep it whole
+        return "", source, ""
+    return prefix, core, suffix
+
+
 def markers_ok(source: str, target: str) -> bool:
     return sorted(MARK_RE.findall(source)) == sorted(MARK_RE.findall(target))
 
@@ -108,8 +125,9 @@ class ClaudeTranslator:
 
     def _translate_batch(self, batch: list[Segment], source: str, target: str, system: str, retry: bool = True) -> list[Translation]:
         payload = []
+        edges = {s.id: strip_edges(s.source) for s in batch}
         for s in batch:
-            item = {"id": s.id, "text": s.source, "context": s.context, "kind": s.kinds[0], "vertical": s.vertical}
+            item = {"id": s.id, "text": edges[s.id][1], "context": s.context, "kind": s.kinds[0], "vertical": s.vertical}
             if s.lines > 1:
                 item["lines"] = s.lines
             if s.budget_chars:
@@ -134,15 +152,16 @@ class ClaudeTranslator:
         redo: list[Segment] = []
         for s in batch:
             t, note = mapping.get(s.id, ("", ""))
+            prefix, core, suffix = edges[s.id]
             t = _clean(t, target)
             if s.kinds and s.kinds[0] in ("TEXT", "ATTRIB"):
                 t = _repad(s.source, t)
             if not t.strip():
                 redo.append(s)
-            elif not markers_ok(s.source, t):
+            elif not markers_ok(core, t):
                 redo.append(s)
             else:
-                results.append(Translation(s.id, t, note=note or _name_note(source, s.source)))
+                results.append(Translation(s.id, prefix + t + suffix, note=note or _name_note(source, s.source)))
         if redo and retry:
             for s in redo:
                 results.extend(self._translate_batch([s], source, target, system, retry=False))

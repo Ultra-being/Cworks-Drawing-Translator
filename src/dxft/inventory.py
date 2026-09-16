@@ -38,7 +38,7 @@ def detect_lang(s: str) -> str:
 @dataclass
 class TextItem:
     handle: str
-    kind: str            # TEXT | MTEXT | ATTRIB | DIMENSION | MLEADER
+    kind: str            # TEXT | MTEXT | ATTRIB | DIMENSION | MLEADER | TABLE_CELL
     where: str           # model | paper:<layout> | block:<name>
     layer: str
     style: str
@@ -128,6 +128,60 @@ def walls(doc: Drawing, limit: int = 400_000) -> dict[str, list[list[float]]]:
     return out
 
 
+def _plain_mtext(value: str) -> str:
+    try:
+        from ezdxf.tools.text import plain_mtext
+        return plain_mtext(value)
+    except Exception:
+        return value
+
+
+def table_cells(table) -> list[tuple[int, str]]:
+    """(cell index, text) for every text cell of an ACAD_TABLE, in tag order.
+    The index counts code-302 tags, so it is stable for patching."""
+    out: list[tuple[int, str]] = []
+    try:
+        subclasses = table.xtags.subclasses
+    except AttributeError:
+        return out
+    idx = 0
+    for sc in subclasses:
+        if not sc or sc[0] != (100, "AcDbTable"):
+            continue
+        for tag in sc:
+            if tag.code == 302:
+                out.append((idx, str(tag.value)))
+                idx += 1
+    return out
+
+
+def set_table_cell(table, idx: int, new: str) -> str | None:
+    """Write a cell's text into its 302 tag and the code-1 twin that precedes
+    it. Returns the old text, or None if the cell was not found."""
+    from ezdxf.lldxf.types import DXFTag
+    try:
+        subclasses = table.xtags.subclasses
+    except AttributeError:
+        return None
+    n = 0
+    for sc in subclasses:
+        if not sc or sc[0] != (100, "AcDbTable"):
+            continue
+        for i, tag in enumerate(sc):
+            if tag.code != 302:
+                continue
+            if n == idx:
+                old = str(tag.value)
+                sc[i] = DXFTag(302, new)
+                for j in range(i - 1, max(i - 6, -1), -1):  # the code-1 twin sits just before
+                    if sc[j].code == 1 and str(sc[j].value) == old:
+                        sc[j] = DXFTag(1, new)
+                        break
+                return old
+            n += 1
+    return None
+
+
 def _walk(doc: Drawing, space: Iterable, where: str, out: list[TextItem]) -> None:
     for e in space:
         t = e.dxftype()
@@ -162,6 +216,17 @@ def _walk(doc: Drawing, space: Iterable, where: str, out: list[TextItem]) -> Non
                     out.append(TextItem(
                         handle=e.dxf.handle, kind=t, where=where, layer=e.dxf.layer, style=e.dxf.dimstyle,
                         raw=txt, plain=txt.replace(DIM_PLACEHOLDER, " "), lang=detect_lang(txt),
+                    ))
+            elif t == "ACAD_TABLE":
+                # Cell text lives in the table's own tags (code 302, mirrored in
+                # code 1) as MTEXT-formatted strings; the handle is table:cell index.
+                for idx, value in table_cells(e):
+                    if not value:
+                        continue
+                    plain = _plain_mtext(value)
+                    out.append(TextItem(
+                        handle=f"{e.dxf.handle}:{idx}", kind="TABLE_CELL", where=where, layer=e.dxf.layer, style="",
+                        raw=value, plain=plain, lang=detect_lang(plain), block_owner=e.dxf.get("geometry", ""),
                     ))
             elif t == "MLEADER":
                 try:

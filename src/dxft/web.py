@@ -256,7 +256,8 @@ def preview_png(job_id: str, which: str, x0: float | None = None, y0: float | No
     else:
         inv = job.dir / "inventory.json"
         if inv.exists():
-            window = preview.text_extent(inv)
+            found = preview.sheets(inv)
+            window = found[0] if len(found) == 1 else preview.text_extent(inv)
     key = "overview" if (x0 is None) else f"{int(window[0])}_{int(window[1])}_{int(window[2])}_{int(window[3])}_{width}"
     png = job.dir / f"preview_{which}_{key}.png"
     if not png.exists():

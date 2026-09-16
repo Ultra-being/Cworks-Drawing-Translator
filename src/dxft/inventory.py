@@ -136,49 +136,84 @@ def _plain_mtext(value: str) -> str:
         return value
 
 
-def table_cells(table) -> list[tuple[int, str]]:
-    """(cell index, text) for every text cell of an ACAD_TABLE, in tag order.
-    The index counts code-302 tags, so it is stable for patching."""
-    out: list[tuple[int, str]] = []
+CHUNK = 250
+
+
+def _cell_blocks(table):
+    """Yield (subclass tags, start, end) for every CELL_VALUE ... ACVALUE_END
+    block of an ACAD_TABLE."""
     try:
         subclasses = table.xtags.subclasses
     except AttributeError:
-        return out
-    idx = 0
+        return
     for sc in subclasses:
         if not sc or sc[0] != (100, "AcDbTable"):
             continue
-        for tag in sc:
-            if tag.code == 302:
-                out.append((idx, str(tag.value)))
-                idx += 1
+        i = 0
+        while i < len(sc):
+            if sc[i].code == 301 and sc[i].value == "CELL_VALUE":
+                j = i + 1
+                while j < len(sc) and not (sc[j].code == 304 and sc[j].value == "ACVALUE_END"):
+                    j += 1
+                yield sc, i, j
+                i = j
+            i += 1
+
+
+def _cell_text(sc, i, j) -> str:
+    """Text of one cell block: the code-2 chunks followed by the code-1 tail
+    (AutoCAD splits strings over 250 characters); a short cell is code 1 only."""
+    return "".join(str(sc[k].value) for k in range(i, j) if sc[k].code == 2) + \
+           "".join(str(sc[k].value) for k in range(i, j) if sc[k].code == 1)
+
+
+def table_cells(table) -> list[tuple[int, str]]:
+    """(cell index, text) for every text cell of an ACAD_TABLE, in tag order.
+    The index counts CELL_VALUE blocks, so it is stable for patching."""
+    out: list[tuple[int, str]] = []
+    for idx, (sc, i, j) in enumerate(_cell_blocks(table)):
+        text = _cell_text(sc, i, j)
+        if text:
+            out.append((idx, text))
     return out
 
 
 def set_table_cell(table, idx: int, new: str) -> str | None:
-    """Write a cell's text into its 302 tag and the code-1 twin that precedes
-    it. Returns the old text, or None if the cell was not found."""
+    """Write a cell's text back in AutoCAD's own layout: code-2 chunks + code-1
+    tail, mirrored as code-303 chunks + code-302 tail. Returns the old text,
+    or None if the cell was not found."""
     from ezdxf.lldxf.types import DXFTag
-    try:
-        subclasses = table.xtags.subclasses
-    except AttributeError:
-        return None
-    n = 0
-    for sc in subclasses:
-        if not sc or sc[0] != (100, "AcDbTable"):
+    for n, (sc, i, j) in enumerate(_cell_blocks(table)):
+        if n != idx:
             continue
-        for i, tag in enumerate(sc):
-            if tag.code != 302:
+        old = _cell_text(sc, i, j)
+        chunks = [new[k:k + CHUNK] for k in range(0, len(new), CHUNK)] or [""]
+        head, tail = chunks[:-1], chunks[-1]
+        first_a = next((k for k in range(i, j) if sc[k].code in (1, 2)), None)
+        first_b = next((k for k in range(i, j) if sc[k].code in (302, 303)), None)
+        if first_a is None:
+            return None
+        keep = [tag for k, tag in enumerate(sc[i:j], start=i) if tag.code not in (1, 2, 302, 303)]
+        # rebuild the block: everything else in order, text tags at their original positions
+        rebuilt = []
+        inserted_a = inserted_b = False
+        for k in range(i, j):
+            tag = sc[k]
+            if tag.code in (1, 2):
+                if not inserted_a:
+                    rebuilt += [DXFTag(2, c) for c in head] + [DXFTag(1, tail)]
+                    inserted_a = True
                 continue
-            if n == idx:
-                old = str(tag.value)
-                sc[i] = DXFTag(302, new)
-                for j in range(i - 1, max(i - 6, -1), -1):  # the code-1 twin sits just before
-                    if sc[j].code == 1 and str(sc[j].value) == old:
-                        sc[j] = DXFTag(1, new)
-                        break
-                return old
-            n += 1
+            if tag.code in (302, 303):
+                if not inserted_b:
+                    rebuilt += [DXFTag(303, c) for c in head] + [DXFTag(302, tail)]
+                    inserted_b = True
+                continue
+            rebuilt.append(tag)
+        if first_b is None and not inserted_b:   # short cells sometimes carry only 1 + 302; keep the mirror
+            pass
+        sc[i:j] = rebuilt
+        return old
     return None
 
 

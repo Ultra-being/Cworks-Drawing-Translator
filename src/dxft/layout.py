@@ -18,6 +18,7 @@ import re
 import unicodedata
 from bisect import bisect_left
 from dataclasses import dataclass
+from pathlib import Path
 
 from .inventory import TextItem
 
@@ -29,17 +30,48 @@ HEADING_START = re.compile(r"^\s*[■□●○◆◇▪]")     # a heading line 
 TABLE_ROW = re.compile(r"\S\s{3,}\S|\S\u3000{2,}\S")  # label   value: a table row, never part of a paragraph
 
 
-_FONT = None
+class Measurer:
+    """Exact advance widths from a TrueType file, in units of the font's cap
+    height (a DXF text height is a cap height). What the drawing will show
+    when the same font is used."""
+
+    def __init__(self, source, name: str = ""):
+        import io
+        from fontTools.ttLib import TTFont
+        tt = TTFont(io.BytesIO(source) if isinstance(source, (bytes, bytearray)) else str(source))
+        self.name = name or str(source)
+        upem = tt["head"].unitsPerEm
+        cap = getattr(tt["OS/2"], "sCapHeight", 0) or int(upem * 0.716)
+        self.cap = cap
+        cmap = tt.getBestCmap() or {}
+        hmtx = tt["hmtx"].metrics
+        self.w = {}
+        for u, g in cmap.items():
+            adv = hmtx.get(g, (0, 0))[0]
+            self.w[u] = adv / cap
+        self.default = self.w.get(ord("n"), 0.75)
+        self.space = self.w.get(32, 0.35)
+
+    def width(self, s: str) -> float:
+        return sum(self.w.get(ord(c), self.default) for c in s)
 
 
-def _font():
-    """The font ezdxf substitutes for SHX text, at cap height 1.0: the same
-    metrics the preview renders with."""
-    global _FONT
-    if _FONT is None:
-        from ezdxf.fonts import fonts
-        _FONT = fonts.make_font("txt", cap_height=1.0)
-    return _FONT
+_MEASURER: Measurer | None = None
+_BUNDLED = Path(__file__).resolve().parent / "fonts" / "LiberationSans-Regular.ttf"
+
+
+def set_measure_font(source=None, name: str = "") -> None:
+    """Choose the font widths are computed with. Default: Liberation Sans,
+    metric-compatible with Arial, the font English output is set to."""
+    global _MEASURER
+    _MEASURER = Measurer(source or _BUNDLED, name or ("LiberationSans" if source is None else name))
+
+
+def _measurer() -> Measurer:
+    global _MEASURER
+    if _MEASURER is None:
+        set_measure_font()
+    return _MEASURER
 
 
 def _is_wide(ch: str) -> bool:
@@ -49,35 +81,14 @@ def _is_wide(ch: str) -> bool:
 def em_width(s: str) -> float:
     """Rendered width in ems (multiples of text height). CJK and full-width
     characters count 1.0 em, as AutoCAD draws them with a bigfont; every
-    other run is measured with real font metrics."""
+    other character is measured with the chosen font's real metrics."""
+    m = _measurer()
     w = 0.0
-    run = ""
     for ch in s:
         if ch == "\n":
             continue
-        if _is_wide(ch):
-            if run:
-                w += _measure(run); run = ""
-            w += 1.0
-        else:
-            run += ch
-    if run:
-        w += _measure(run)
+        w += 1.0 if _is_wide(ch) else m.w.get(ord(ch), m.default)
     return w
-
-
-_SPACE = None
-
-
-def _measure(run: str) -> float:
-    """Font width of a Latin/Cyrillic run; leading and trailing spaces are
-    counted explicitly because the font measure trims them."""
-    global _SPACE
-    f = _font()
-    if _SPACE is None:
-        _SPACE = max(f.text_width("| |") - f.text_width("||"), 0.2)
-    core = run.strip(" ")
-    return f.text_width(core) + (len(run) - len(core)) * _SPACE
 
 
 def rendered_width(it: TextItem) -> float:
@@ -277,13 +288,20 @@ def join_lines(lines: list[str], lang: str) -> str:
 WF_FLOOR = 0.6   # narrowest width factor still readable on a plot
 
 
-def _greedy(text: str, cap_em: float, cjk: bool) -> list[str]:
+def _greedy(text: str, cap_em: float | list[float], cjk: bool) -> list[str]:
+    """Greedy wrap. `cap_em` is one width for every line, or a list of widths,
+    one per line (an indented first line is narrower); past the end of the
+    list the last width repeats."""
+    caps = cap_em if isinstance(cap_em, list) else [cap_em]
+    if not caps:
+        caps = [1e9]
+    cap_of = lambda i: caps[min(i, len(caps) - 1)]
     lines: list[str] = []
     for para in text.split("\n"):
         if cjk:
             cur = ""
             for ch in para:
-                if cur and em_width(cur + ch) > cap_em:
+                if cur and em_width(cur + ch) > cap_of(len(lines)):
                     lines.append(cur); cur = ch
                 else:
                     cur += ch
@@ -292,7 +310,7 @@ def _greedy(text: str, cap_em: float, cjk: bool) -> list[str]:
             cur = ""
             for w in para.split(" "):
                 cand = w if not cur else cur + " " + w
-                if cur and em_width(cand) > cap_em:
+                if cur and em_width(cand) > cap_of(len(lines)):
                     lines.append(cur); cur = w
                 else:
                     cur = cand
@@ -300,21 +318,23 @@ def _greedy(text: str, cap_em: float, cjk: bool) -> list[str]:
     return [l for l in lines if l != ""] or [""]
 
 
-def wrap_to(text: str, cap_em: float, max_lines: int, cjk: bool) -> tuple[list[str], float, bool]:
-    """Fit text into max_lines of cap_em ems. Tries width factors 1.0 → WF_FLOOR.
-    Returns (lines, width_factor, overflow). On overflow the surplus is folded
-    into the last line so nothing is lost; the reviewer is told."""
-    if cap_em <= 0:
+def wrap_to(text: str, cap_em: float | list[float], max_lines: int, cjk: bool) -> tuple[list[str], float, bool]:
+    """Fit text into max_lines of cap_em ems (one width, or one per line).
+    Tries width factors 1.0 → WF_FLOOR. Returns (lines, width_factor,
+    overflow). On overflow the surplus is folded into the last line so
+    nothing is lost; the reviewer is told."""
+    caps = cap_em if isinstance(cap_em, list) else [cap_em]
+    if not caps or max(caps) <= 0:
         return _greedy(text, 1e9, cjk)[:max_lines], 1.0, False
     wf = 1.0
     while True:
-        lines = _greedy(text, cap_em / wf, cjk)
+        lines = _greedy(text, [c / wf for c in caps], cjk)
         if len(lines) <= max_lines:
             return lines, round(wf, 2), False
         if wf - 0.05 < WF_FLOOR - 1e-9:
             break
         wf = round(wf - 0.05, 2)
-    lines = _greedy(text, cap_em / wf, cjk)
+    lines = _greedy(text, [c / wf for c in caps], cjk)
     head, tail = lines[:max_lines - 1], lines[max_lines - 1:]
     joiner = "" if cjk else " "
     return head + [joiner.join(tail)], wf, True

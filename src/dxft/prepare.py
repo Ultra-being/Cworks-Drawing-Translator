@@ -17,8 +17,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, asdict, field
 
+import os
+
 from .inventory import TextItem, detect_lang
 from . import layout
+
+# Fraction of the measured room actually used: viewers substitute fonts, so
+# text that runs to the edge in one may cross it in another.
+SAFETY = float(os.environ.get("DXFT_WIDTH_SAFETY", "0.93"))
 
 # MTEXT inline codes: \P (newline), \~ (nbsp), \\ , \{ \} , {...} groups,
 # and \X...; commands (font \f, height \H, colour \C, width \W, alignment
@@ -57,6 +63,7 @@ class Segment:
     vertical: bool = False
     groups: list[list[str]] = field(default_factory=list)  # each instance: its handles, top line first
     caps: list[float] = field(default_factory=list)        # per instance: room per line, in ems (0 = unknown)
+    line_caps: list[list[float]] = field(default_factory=list)  # per instance: room of each line (indents make them differ)
     lines: int = 1         # lines available per instance (paragraphs > 1)
     budget_chars: int = 0  # length hint for the model, 0 = no constraint known
 
@@ -96,6 +103,20 @@ def simplify_mtext(raw: str) -> str:
     return "".join(out)
 
 
+def latinize(text: str) -> str:
+    """For Latin-script output: full-width punctuation and letters become
+    their ASCII forms (NFKC), Japanese bullets become "- ". Fonts like Arial
+    have no glyph for ・ or ＡＢＣ; AutoCAD would draw boxes."""
+    import unicodedata
+    out = []
+    for line in text.split("\n"):
+        line = unicodedata.normalize("NFKC", line).replace("・", "·").replace("･", "·")
+        line = re.sub(r"^(\s*)[·•]\s*", r"\1- ", line)
+        line = line.replace("〜", "–").replace("～", "–")
+        out.append(line)
+    return "\n".join(out)
+
+
 def mark_codes(raw: str) -> tuple[str, list[str]]:
     """Replace MTEXT format codes with ⟦n⟧ markers. Returns (marked, codes)."""
     codes: list[str] = []
@@ -131,7 +152,7 @@ def unmark_codes(marked: str, codes: list[str]) -> str:
 
 # Grid axes and legend keys on Russian drawings: a Cyrillic letter or two,
 # optionally numbered (А, Б, Л1, Ст2). References, never words.
-CYR_CODE = re.compile(r"^\s*[А-ЯЁ]{1,2}\d{0,3}\s*$")
+CYR_CODE = re.compile(r"^\s*(?:[А-ЯЁ]|[А-ЯЁ]{1,2}\d{1,3})\s*$")   # one letter, or letters+digits; "СП"/"АР" alone are words to transliterate
 # Window/door/opening marks that refer to schedules: ОК-9.1, Д-9л, Ш-7, ОК-2*, ПР-1
 CYR_MARK = re.compile(r"^\s*[А-ЯЁ]{1,3}-?\d+(?:[.,]\d+)*[а-яё*]?\s*$")
 
@@ -196,7 +217,9 @@ def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list
             )
             by_source[marked] = seg
         seg.groups.append([t.handle for t in group])
-        seg.caps.append(_cap_em(group, avail))
+        cap, per_line = _cap_em(group, avail)
+        seg.caps.append(cap)
+        seg.line_caps.append(per_line)
         seg.lines = max(seg.lines, len(group))
         for t in group:
             seg.handles.append(t.handle)
@@ -215,17 +238,27 @@ def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list
     return list(by_source.values()), handle_map, skipped
 
 
-def _cap_em(group: list[TextItem], avail: dict[str, float]) -> float:
-    """Room per line for one instance, in ems of its own height. 0 = unknown."""
+def _cap_em(group: list[TextItem], avail: dict[str, float]) -> tuple[float, list[float]]:
+    """Room for one instance, in ems of its own height: (one figure for the
+    group, one per line). 0 = unknown. For a paragraph the right edge is
+    shared: the longest line's end, or the nearest neighbour found on any
+    line; each line's room runs from its own start to that edge."""
     first = group[0]
     if first.kind not in ("TEXT", "ATTRIB", "PDF") or first.height <= 0:
-        return 0.0
+        return 0.0, []
     scale = first.height * (first.width_factor or 1.0)
     line_ems = [layout.em_width(t.plain) for t in group]
-    known = [avail[t.handle] / scale for t in group if t.handle in avail]
+    if len(group) == 1:
+        if first.handle in avail:
+            cap = round(max(avail[first.handle] * SAFETY / scale, line_ems[0]), 2)
+        else:
+            cap = round(line_ems[0] * (2.4 if first.lang in ("ja", "zh") else 1.4), 2)
+        return cap, [cap]
+    right = max(t.x + layout.rendered_width(t) for t in group)
+    known = [t.x + avail[t.handle] * SAFETY for t in group if t.handle in avail]
     if known:
-        return round(max(min(known), max(line_ems)), 2)
-    # nothing found nearby: a free label may grow (Japanese to English needs
-    # about 2.4x, Russian to English about 1.4x); a paragraph column only a little
-    grow = (2.4 if first.lang in ("ja", "zh") else 1.4) if len(group) == 1 else 1.2
-    return round(max(line_ems) * grow, 2)
+        right = max(right, min(known))
+    else:
+        right += (right - min(t.x for t in group)) * 0.2   # nothing found nearby: a little growth
+    per_line = [round(max((right - t.x) / scale, e), 2) for t, e in zip(group, line_ems)]
+    return round(max(per_line), 2), per_line

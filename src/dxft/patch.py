@@ -14,6 +14,7 @@ in the report.
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass, field
 
 import ezdxf
@@ -22,9 +23,12 @@ from ezdxf.document import Drawing
 from .inventory import TextItem, load, set_table_cell
 from .layout import wrap_to, _greedy, em_width
 from .translate import TABLE_GAP, _repad
-from .prepare import Segment, unmark_codes
+from .prepare import Segment, unmark_codes, latinize
 
 JA_FONT = ("txt", "extfont2")  # SHX shape font + Japanese bigfont
+# English output is set to a TrueType font every viewer has, and widths are
+# measured with the same metrics (layout.Measurer): what fits here fits there.
+EN_FONT = os.environ.get("DXFT_EN_FONT", "arial.ttf")
 JA_CAPABLE_FONTS = {"txt", "msgothic.ttc", "msmincho.ttc", "meiryo.ttc", "yugothic.ttf", "notosanscjk", "extfont", "extfont2", "bigfont.shx"}
 
 
@@ -59,6 +63,20 @@ def _ensure_ja_style(doc: Drawing, style_name: str, result: PatchResult) -> None
     result.style_changes.append(f"{style_name}: {old[0]!r}/{old[1]!r} -> {JA_FONT[0]!r}/{JA_FONT[1]!r}")
 
 
+def _ensure_en_style(doc: Drawing, style_name: str, result: PatchResult) -> None:
+    if not EN_FONT:
+        return
+    try:
+        st = doc.styles.get(style_name)
+    except Exception:
+        return
+    old = (st.dxf.font, st.dxf.bigfont)
+    if (old[0] or "").lower() == EN_FONT.lower():
+        return
+    st.dxf.font, st.dxf.bigfont = EN_FONT, ""
+    result.style_changes.append(f"{style_name}: {old[0]!r}/{old[1]!r} -> {EN_FONT!r}")
+
+
 def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved: dict[str, str],
           target: str, width_factors: dict[str, float] | None = None) -> PatchResult:
     """`approved` maps segment id -> final text (with ⟦n⟧ markers for MTEXT).
@@ -78,9 +96,12 @@ def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved
             return None
 
     def ja_style(item: TextItem) -> None:
-        if target == "ja" and item.style and item.style not in styles_checked:
+        if item.style and item.style not in styles_checked:
             styles_checked.add(item.style)
-            _ensure_ja_style(doc, item.style, result)
+            if target == "ja":
+                _ensure_ja_style(doc, item.style, result)
+            else:
+                _ensure_en_style(doc, item.style, result)
 
     for seg in segments:
         final = approved.get(seg.id)
@@ -88,19 +109,23 @@ def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved
             result.skipped.extend(seg.handles)
             continue
         text = unmark_codes(final, seg.codes) if seg.codes else final
+        if not cjk:
+            text = latinize(text)
         kind = seg.kinds[0] if seg.kinds else ""
 
         if kind in ("TEXT", "ATTRIB") and seg.groups:
             if seg.lines == 1:
                 text = _repad(seg.source, text)   # table rows keep their value column
-            for group, cap in zip(seg.groups, seg.caps):
+            for gi, (group, cap) in enumerate(zip(seg.groups, seg.caps)):
+                per_line = seg.line_caps[gi] if gi < len(seg.line_caps) and seg.line_caps[gi] else cap
                 override = width_factors.get(seg.id)
                 if override and abs(override - 1.0) > 0.01:
-                    lines, wf, overflow = _greedy(text, cap / override if cap > 0 else 1e9, cjk), override, False
+                    scaled = [c / override for c in per_line] if isinstance(per_line, list) else (per_line / override if per_line > 0 else 1e9)
+                    lines, wf, overflow = _greedy(text, scaled, cjk), override, False
                     if len(lines) > len(group):
                         lines, overflow = lines[:len(group) - 1] + [(" " if not cjk else "").join(lines[len(group) - 1:])], True
                 else:
-                    lines, wf, overflow = wrap_to(text, cap, len(group), cjk)
+                    lines, wf, overflow = wrap_to(text, per_line, len(group), cjk)
                 if overflow and seg.id not in result.overflow:
                     result.overflow.append(seg.id)
                 if abs(wf - 1.0) > 0.01 and len(lines) == 1:

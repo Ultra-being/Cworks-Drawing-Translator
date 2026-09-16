@@ -7,3 +7,18 @@
 Помещение → Room · Кабинет → Office · Коридор → Corridor · Санузел → WC / Toilet · Тамбур → Vestibule · Вестибюль → Lobby · Техническое помещение → Plant room · Электрощитовая → Electrical room · Венткамера → Ventilation plant room
 Отм. → Level · Уровень чистого пола → Finished floor level · Ось → Grid line · В осях → Between grids · Толщина → Thickness · Утеплитель → Insulation · Гидроизоляция → Waterproofing · Штукатурка → Plaster · Облицовка → Cladding
 См. → See · Прим. → Note · Поз. → Item · Шт. → Pcs. · Масса → Weight · Наименование → Description · Обозначение → Designation · Марка → Mark / Type
+
+## Standards and set codes
+ГОСТ → GOST
+ГОСТ Р → GOST R
+СП → SP
+СНиП → SNiP
+СанПиН → SanPiN
+ТУ → TU
+АР → AR
+ОВ → OV
+ВК → VK
+ЭОМ → EOM
+ИОС → IOS
+КЖ → KZh
+КМ → KM

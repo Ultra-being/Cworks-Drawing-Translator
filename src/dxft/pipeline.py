@@ -149,7 +149,20 @@ class Job:
         self._stage_done("inventory", **summ)
         return summ
 
+    def _measure_font(self) -> None:
+        """Widths are measured with the font the output is written in."""
+        from . import layout
+        if self.fmt == "pdf":
+            try:
+                import pymupdf_fonts
+                layout.set_measure_font(pymupdf_fonts.fontbuffers["notos"], "NotoSans")
+                return
+            except Exception:
+                pass
+        layout.set_measure_font()
+
     def prepare(self) -> dict:
+        self._measure_font()
         data = _r(self.dir / "inventory.json")
         items = [inv.TextItem(**d) for d in data["items"]]
         source = self.meta["source"]
@@ -162,6 +175,7 @@ class Job:
         return info
 
     def translate(self, mode: str = "claude", model: str | None = None) -> dict:
+        self._measure_font()
         data = _r(self.dir / "segments.json")
         segments = [prep.Segment(**s) for s in data["segments"]]
         meta = self.meta
@@ -248,6 +262,7 @@ class Job:
             {r["source_marked"]: r["target"] for r in rows if r["approved"] and r["target"].strip()})
 
     def patch(self, only_approved: bool = True, learn: bool = False) -> dict:
+        self._measure_font()
         inv_data = _r(self.dir / "inventory.json")
         items = [inv.TextItem(**d) for d in inv_data["items"]]
         segments = [prep.Segment(**s) for s in _r(self.dir / "segments.json")["segments"]]

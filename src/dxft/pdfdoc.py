@@ -229,15 +229,12 @@ def inventory(doc) -> tuple[list[TextItem], dict[str, list[list[float]]], dict[s
 
 # ───────────────────────────── patch ─────────────────────────────
 
-LATIN_FONT = {"serif": "tiro", "sans": "helv"}   # PyMuPDF built-ins: Times-Roman, Helvetica
-CJK_FONT = "japan"
+LATIN_FONT = "notos"   # Noto Sans (pymupdf-fonts): Latin + Cyrillic, so kept codes like ОК-9 still print
+CJK_FONT = "japan"     # built-in CJK font; also covers Cyrillic
 
 
 def _font_for(font_name: str, target: str) -> str:
-    if target in ("ja", "zh"):
-        return CJK_FONT
-    f = font_name.lower()
-    return LATIN_FONT["serif"] if ("times" in f or "gost" in f or "roman" in f) else LATIN_FONT["sans"]
+    return CJK_FONT if target in ("ja", "zh") else LATIN_FONT
 
 
 def apply(doc, geo: dict[str, dict], segments, approved: dict[str, str], target: str,
@@ -248,12 +245,12 @@ def apply(doc, geo: dict[str, dict], segments, approved: dict[str, str], target:
     import pymupdf
     from .layout import wrap_to, _greedy, em_width
     from .patch import PatchResult
-    from .prepare import unmark_codes
+    from .prepare import unmark_codes, latinize
 
     result = PatchResult()
     width_factors = width_factors or {}
     cjk = target in ("ja", "zh")
-    plan: dict[int, list[tuple[dict, str, float, str]]] = defaultdict(list)   # page -> (geo, text, wf, fontname)
+    plan: dict[int, list[tuple[dict, str, float, str, float]]] = defaultdict(list)   # page -> (geo, text, wf, fontname, allowed width)
 
     for seg in segments:
         final = approved.get(seg.id)
@@ -261,14 +258,17 @@ def apply(doc, geo: dict[str, dict], segments, approved: dict[str, str], target:
             result.skipped.extend(seg.handles)
             continue
         text = unmark_codes(final, seg.codes) if seg.codes else final
-        for group, cap in zip(seg.groups, seg.caps):
+        if not cjk:
+            text = latinize(text)
+        for gi, (group, cap) in enumerate(zip(seg.groups, seg.caps)):
+            per_line = seg.line_caps[gi] if gi < len(seg.line_caps) and seg.line_caps[gi] else [cap] * len(group)
             override = width_factors.get(seg.id)
             if override and abs(override - 1.0) > 0.01:
-                lines, wf, overflow = _greedy(text, cap / override if cap > 0 else 1e9, cjk), override, False
+                lines, wf, overflow = _greedy(text, [c / override for c in per_line], cjk), override, False
                 if len(lines) > len(group):
                     lines, overflow = lines[:len(group) - 1] + [(" " if not cjk else "").join(lines[len(group) - 1:])], True
             else:
-                lines, wf, overflow = wrap_to(text, cap, len(group), cjk)
+                lines, wf, overflow = wrap_to(text, per_line, len(group), cjk)
             if overflow and seg.id not in result.overflow:
                 result.overflow.append(seg.id)
             for i, handle in enumerate(group):
@@ -276,17 +276,18 @@ def apply(doc, geo: dict[str, dict], segments, approved: dict[str, str], target:
                 if g is None:
                     result.skipped.append(handle)
                     continue
-                plan[g["page"]].append((g, lines[i] if i < len(lines) else "", wf, _font_for(g["font"], target)))
+                allowed = per_line[min(i, len(per_line) - 1)] * g["size"] * CAP
+                plan[g["page"]].append((g, lines[i] if i < len(lines) else "", wf, _font_for(g["font"], target), allowed))
                 result.patched += 1
                 if abs(wf - 1.0) > 0.01:
                     result.width_factors += 1
 
     for pno, entries in plan.items():
         page = doc[pno - 1]
-        for g, _, _, _ in entries:
+        for g, _, _, _, _ in entries:
             page.add_redact_annot(pymupdf.Rect(*g["bbox"]))
         page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE, graphics=pymupdf.PDF_REDACT_LINE_ART_NONE)
-        for g, line, wf, fontname in entries:
+        for g, line, wf, fontname, allowed in entries:
             if not line:
                 continue
             x0, y0, x1, y1 = g["bbox"]
@@ -307,9 +308,9 @@ def apply(doc, geo: dict[str, dict], segments, approved: dict[str, str], target:
             else:
                 origin = pymupdf.Point(x1, y0 + (y1 - y0) * 0.22)
             # narrow to fit the original box as well as the layout's factor
-            avail = (x1 - x0) if rot in (0, 180) else (y1 - y0)
+            avail = max(allowed, (x1 - x0) if rot in (0, 180) else (y1 - y0))
             need = pymupdf.get_text_length(line, fontname=fontname, fontsize=size)
-            sx = min(wf, avail / need if need > 0 else 1.0, 1.0)
+            sx = min(avail / need if need > 0 else 1.0, 1.0)
             sx = max(sx, 0.55)
             m = pymupdf.Matrix(sx, 1) if rot in (0, 180) else pymupdf.Matrix(1, sx)
             try:

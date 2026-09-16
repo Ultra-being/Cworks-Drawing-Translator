@@ -214,9 +214,11 @@ class Job:
             t = trans.get(s["id"], {})
             f = fits.get(s["id"], {})
             r = review.get(s["id"], {})
+            target = r.get("text", t.get("target", ""))
             rows.append({
                 "id": s["id"], "source": s["plain"], "source_marked": s["source"], "lang": s["lang"],
-                "target": r.get("text", t.get("target", "")), "model_target": t.get("target", ""),
+                "target": target, "display": prep.MARK_RE.sub("", target), "has_codes": bool(s.get("codes")),
+                "model_target": t.get("target", ""),
                 "ok": t.get("ok", False), "note": t.get("note", ""), "count": len(s["handles"]), "kinds": sorted(set(s["kinds"])),
                 "context": s["context"], "vertical": s["vertical"], "lines": s.get("lines", 1), "cap_em": f.get("cap_em", 0),
                 "fit": f.get("flag", ""), "ratio": f.get("ratio", 1.0), "width_factor": r.get("width_factor", f.get("suggested_width_factor", 1.0)),

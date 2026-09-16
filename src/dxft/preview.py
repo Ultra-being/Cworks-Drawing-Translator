@@ -58,3 +58,63 @@ def render(dxf_path: Path, png_path: Path, window: tuple[float, float, float, fl
     fig.savefig(str(png_path), dpi=dpi, facecolor="white")
     plt.close(fig)
     return window
+
+
+def sheets(inventory_path: Path, pad: float = 0.03) -> list[tuple[float, float, float, float]]:
+    """Split a model space that holds many sheets into one window per sheet.
+    Text positions are clustered (single linkage); a gap wider than a few
+    dozen text heights separates sheets. One cluster = the whole drawing."""
+    data = json.loads(inventory_path.read_text(encoding="utf-8"))
+    pts = [(it["x"], it["y"], it["height"]) for it in data["items"]
+           if it["where"] == "model" and it["kind"] in ("TEXT", "MTEXT", "ATTRIB") and it["height"] > 0]
+    if len(pts) < 2:
+        return []
+    hs = sorted(p[2] for p in pts)
+    med = hs[len(hs) // 2]
+    xs = sorted(p[0] for p in pts); ys = sorted(p[1] for p in pts)
+    lo, hi = int(len(xs) * 0.02), max(int(len(xs) * 0.98) - 1, 0)
+    extent = max(xs[hi] - xs[lo], ys[hi] - ys[lo], 1.0)
+    gap = max(25 * med, 0.015 * extent)
+    # grid-bucket single linkage
+    cell = gap
+    buckets: dict[tuple[int, int], list[int]] = {}
+    for i, (x, y, _) in enumerate(pts):
+        buckets.setdefault((int(x // cell), int(y // cell)), []).append(i)
+    parent = list(range(len(pts)))
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]; a = parent[a]
+        return a
+
+    for (cx, cy), members in buckets.items():
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                other = buckets.get((cx + dx, cy + dy))
+                if not other:
+                    continue
+                for i in members:
+                    for j in other:
+                        if abs(pts[i][0] - pts[j][0]) <= gap and abs(pts[i][1] - pts[j][1]) <= gap:
+                            parent[find(i)] = find(j)
+    groups: dict[int, list[int]] = {}
+    for i in range(len(pts)):
+        groups.setdefault(find(i), []).append(i)
+    out = []
+    for members in groups.values():
+        if len(members) < 5:
+            continue
+        x0 = min(pts[i][0] for i in members); x1 = max(pts[i][0] for i in members)
+        y0 = min(pts[i][1] for i in members); y1 = max(pts[i][1] for i in members)
+        w, h = max(x1 - x0, 20 * med), max(y1 - y0, 20 * med)
+        # text sits inside the drawing, not around it: pad well, and keep a
+        # sheet-like proportion so tall drawings under short labels are kept
+        px, py = w * 0.12 + 30 * med, h * 0.12 + 30 * med
+        bx0, by0, bx1, by1 = x0 - px, y0 - py, x1 + px, y1 + py
+        if (by1 - by0) < (bx1 - bx0) / 1.6:
+            extra = (bx1 - bx0) / 1.6 - (by1 - by0)
+            by0 -= extra * 0.6; by1 += extra * 0.4
+        out.append((bx0, by0, bx1, by1))
+    # reading order: top row first, left to right
+    out.sort(key=lambda b: (-round(b[3] / (extent * 0.15)), b[0]))
+    return out

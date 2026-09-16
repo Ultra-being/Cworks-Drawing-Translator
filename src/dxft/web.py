@@ -289,6 +289,18 @@ def _preview_pdf(job: Job, src: Path, which: str, page: int, x0, y0, x1, y1, wid
     return FileResponse(str(png), media_type="image/png", headers={"X-Window": json.dumps(drawn), "X-Pages": str(len(doc))})
 
 
+@app.get("/api/jobs/{job_id}/sheets")
+def sheets(job_id: str):
+    """Windows for the separate sheets found in a DXF model space (1 = whole drawing)."""
+    job = _job(job_id)
+    if job.fmt == "pdf":
+        return {"sheets": [], "pages": (job.meta.get("stages", {}).get("inventory") or {}).get("pages", 1)}
+    inv = job.dir / "inventory.json"
+    if not inv.exists():
+        return {"sheets": []}
+    return {"sheets": preview.sheets(inv)}
+
+
 @app.get("/api/memory/{source}/{target}")
 def memory(source: str, target: str):
     return Memory(_root(), source, target).data

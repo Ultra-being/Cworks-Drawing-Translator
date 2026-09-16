@@ -106,7 +106,7 @@ const api = async (url, opt={}) => {
   if (!r.ok) { let t = await r.text(); try { t = JSON.parse(t).detail || t } catch(e){}; throw new Error(t) }
   return r.headers.get('content-type')?.includes('json') ? r.json() : r;
 };
-let jobs = [], current = null, rows = [], tab = 'review', filter = 'all', search = '', poll = null, which = 'after', windowStack = [], page = 1;
+let jobs = [], current = null, rows = [], tab = 'review', filter = 'all', search = '', poll = null, which = 'after', windowStack = [], page = 1, sheet = 0, sheetList = [];
 
 const openFolders = new Set(JSON.parse(localStorage.getItem('dxft.open') || '[]'));
 function toggleFolder(key) { openFolders.has(key) ? openFolders.delete(key) : openFolders.add(key); localStorage.setItem('dxft.open', JSON.stringify([...openFolders])); loadJobs(); }
@@ -164,7 +164,8 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;
 
 async function openJob(id) {
   current = await api('/api/jobs/' + id);
-  windowStack = []; page = 1;
+  windowStack = []; page = 1; sheet = 0; sheetList = [];
+  try { sheetList = (await api(`/api/jobs/${id}/sheets`)).sheets || []; if (sheetList.length > 1) sheet = 1; } catch (e) {}
   rows = await api(`/api/jobs/${id}/review`);
   render(); loadJobs(); schedulePoll();
 }
@@ -244,7 +245,7 @@ function visible() {
     else if (filter === 'unapproved') { if (r.approved) return false; }
     else if (filter === 'fit') { if (!r.fit) return false; }
     else if (filter === 'edited') { if (!r.edited) return false; }
-    if (q && !(r.source.toLowerCase().includes(q) || r.target.toLowerCase().includes(q))) return false;
+    if (q && !(r.source.toLowerCase().includes(q) || r.display.toLowerCase().includes(q))) return false;
     return true;
   });
 }
@@ -263,7 +264,7 @@ function renderReview() {
     <tbody>${v.map(r => `<tr data-id="${r.id}" class="${r.edited?'dirty':''}">
       <td><input type="checkbox" ${r.approved?'checked':''} onchange="setRow('${r.id}',{approved:this.checked})" title="approved"></td>
       <td class="src">${esc(r.source)}</td>
-      <td class="tgt"><textarea rows="${Math.max(1, Math.ceil(r.target.length/40) + (r.target.match(/\n/g)||[]).length)}" onchange="setRow('${r.id}',{text:this.value})">${esc(r.target)}</textarea></td>
+      <td class="tgt"><textarea rows="${Math.max(1, Math.ceil(r.display.length/40) + (r.display.match(/\n/g)||[]).length)}" onchange="setRow('${r.id}',{text:this.value})">${esc(r.display)}</textarea></td>
       <td class="small">${r.count}${r.lines>1?` · ${r.lines} lines`:''}${r.edited?` <button title="Back to the model's translation" style="padding:0 5px;font-size:11px" onclick="setRow('${r.id}',{revert:true})">↺</button>`:''}</td>
       <td class="small">${fitChip(r)}</td>
       <td class="small" style="white-space:normal">${r.ok?'':'<span class="chip bad">needs a human</span> '}${r.note && r.note!=='from memory' ? esc(r.note) : r.note==='from memory' ? '<span class="chip">memory</span>' : ''}</td>
@@ -294,10 +295,12 @@ function renderPreview() {
       <button class="${which==='after'?'primary':''}" ${hasAfter?'':'disabled'} onclick="which='after';windowStack=[];renderPreview()">After</button>
       <button ${windowStack.length?'':'disabled'} onclick="windowStack.pop();renderPreview()">↩ Back</button>
       ${current.fmt==='pdf' ? `<span style="margin-left:8px">Page <input type="text" id="pg" value="${page}" style="width:56px" onchange="page=parseInt(this.value)||1;windowStack=[];renderPreview()"> of ${(current.stages?.inventory||{}).pages||'?'}</span>` : ''}
+      ${current.fmt!=='pdf' && sheetList.length>1 ? `<span style="margin-left:8px">Sheet <select onchange="sheet=parseInt(this.value);windowStack=[];renderPreview()">${['<option value="0"'+(sheet===0?' selected':'')+'>whole drawing</option>'].concat(sheetList.map((b,i)=>`<option value="${i+1}" ${sheet===i+1?'selected':''}>${i+1} of ${sheetList.length}</option>`)).join('')}</select></span>` : ''}
       <span class="count">Drag a rectangle to zoom into that area. Large sheets take up to a minute to draw.</span>
     </div>
     <div class="preview" id="pv"><div class="busy">Drawing…</div></div>`;
-  const win = windowStack[windowStack.length-1];
+  let win = windowStack[windowStack.length-1];
+  if (!win && current.fmt!=='pdf' && sheet>0 && sheetList[sheet-1]) win = sheetList[sheet-1];
   const url = `/api/jobs/${current.id}/preview/${which}?page=${page}` + (win ? `&x0=${win[0]}&y0=${win[1]}&x1=${win[2]}&y1=${win[3]}` : '');
   fetch(url).then(async r => {
     if (!r.ok) throw new Error(await r.text());

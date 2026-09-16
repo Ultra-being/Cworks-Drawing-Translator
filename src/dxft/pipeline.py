@@ -163,10 +163,13 @@ class Job:
             })
         return rows
 
-    def set_review(self, seg_id: str, text: str | None = None, approved: bool | None = None, width_factor: float | None = None) -> None:
+    def set_review(self, seg_id: str, text: str | None = None, approved: bool | None = None, width_factor: float | None = None,
+                   revert: bool = False) -> None:
         p = self.dir / "review.json"
         review = _r(p) if p.exists() else {}
         entry = review.get(seg_id, {})
+        if revert:
+            entry.pop("text", None)
         if text is not None:
             entry["text"] = text
         if approved is not None:

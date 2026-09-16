@@ -53,3 +53,9 @@ Every string is measured against the room it has: the next text on the same row,
 ## Translation memory
 
 `jobs/_memory/<source>-<target>.json` holds approved translations. Every later job reuses an exact source match verbatim (title blocks, legends, repeated labels come out identical on every sheet and cost nothing). It only learns when you ask: `dxft run ... --learn` or `dxft remember <job-id>` after review.
+
+## Web app
+
+    dxft serve                # http://127.0.0.1:8765
+
+Upload a DXF, watch the stages, review the table (edit, approve, revert to the model's text), patch, download the DXF and the report. The Preview tab draws the sheet before and after; drag a rectangle to zoom into a region. "Store in memory" keeps the approved translations for the next sheet of the same set. All state is the `jobs/<id>/` folder, so the CLI and the web app can be mixed.

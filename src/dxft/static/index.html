@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cworks Drawing Translator</title>
+<style>
+  :root{--bg:#f6f5f2;--panel:#fff;--ink:#1c1c1a;--mute:#6b6a66;--line:#e3e1dc;--accent:#1f4e79;--ok:#1d7a4a;--warn:#b7791f;--bad:#b3261e;--chip:#eeede9}
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+  header{display:flex;align-items:center;gap:16px;padding:12px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
+  header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.2px}
+  header .sub{color:var(--mute);font-size:12px}
+  header .grow{flex:1}
+  main{display:grid;grid-template-columns:280px 1fr;height:calc(100vh - 49px)}
+  aside{border-right:1px solid var(--line);background:var(--panel);padding:12px;overflow:auto}
+  section{padding:16px 20px;overflow:auto}
+  button{font:inherit;padding:6px 12px;border:1px solid var(--line);background:var(--panel);border-radius:6px;cursor:pointer;color:var(--ink)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button:disabled{opacity:.45;cursor:default}
+  select,input[type=text]{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:#fff}
+  .job{padding:8px 10px;border-radius:6px;cursor:pointer;border:1px solid transparent;margin-bottom:4px}
+  .job:hover{background:var(--bg)} .job.active{background:var(--bg);border-color:var(--line)}
+  .job .n{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .job .m{color:var(--mute);font-size:12px}
+  .chip{display:inline-block;padding:1px 7px;border-radius:10px;background:var(--chip);font-size:11px;color:var(--mute);margin-left:4px}
+  .chip.ok{background:#e3f2ea;color:var(--ok)} .chip.warn{background:#f8efdd;color:var(--warn)} .chip.bad{background:#f9e3e1;color:var(--bad)} .chip.run{background:#e3ecf5;color:var(--accent)}
+  .stages{display:flex;gap:6px;margin:10px 0 14px;flex-wrap:wrap}
+  .stage{padding:5px 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--mute);font-size:12px}
+  .stage.done{color:var(--ok);border-color:#bfe0cd} .stage.run{color:var(--accent);border-color:#bcd0e6;animation:pulse 1.2s infinite}
+  @keyframes pulse{50%{opacity:.5}}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center}
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:12px}
+  .tab{padding:8px 14px;cursor:pointer;color:var(--mute);border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tab.active{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}
+  table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:6px}
+  th,td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+  th{font-size:12px;color:var(--mute);font-weight:600;position:sticky;top:0;background:var(--panel)}
+  td.src{width:36%;white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+  td.tgt{width:40%}
+  td.tgt textarea{width:100%;font:inherit;border:1px solid transparent;border-radius:4px;padding:3px 5px;background:transparent;resize:vertical;min-height:26px;field-sizing:content;overflow:hidden}
+  td.tgt textarea:focus{border-color:var(--accent);background:#fff;outline:none}
+  tr.dirty td.tgt textarea{background:#fffbe6}
+  td.small{font-size:12px;color:var(--mute);white-space:nowrap}
+  .filters{display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap}
+  .filters .count{color:var(--mute);font-size:12px;margin-left:auto}
+  .preview{position:relative;background:#fff;border:1px solid var(--line);border-radius:6px;overflow:hidden;user-select:none}
+  .preview img{display:block;width:100%;height:auto}
+  .preview .box{position:absolute;border:1.5px dashed var(--accent);background:rgba(31,78,121,.08);pointer-events:none}
+  .preview .busy{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.7);color:var(--mute)}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px;white-space:pre-wrap;font-size:12.5px}
+  .empty{color:var(--mute);padding:40px;text-align:center}
+  .err{background:#f9e3e1;color:var(--bad);padding:8px 12px;border-radius:6px;margin-bottom:12px;white-space:pre-wrap;font-size:12px}
+  dialog{border:1px solid var(--line);border-radius:8px;padding:20px;width:420px}
+  dialog label{display:block;margin:10px 0 4px;font-size:12px;color:var(--mute)}
+  dialog .row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Cworks Drawing Translator</h1>
+  <span class="sub">DXF text layer · Russian / Japanese → English / Japanese · geometry untouched</span>
+  <span class="grow"></span>
+  <button class="primary" onclick="openNew()">New drawing</button>
+</header>
+<main>
+  <aside id="jobs"></aside>
+  <section id="view"><div class="empty">Upload a DXF to start, or pick a job on the left.</div></section>
+</main>
+
+<dialog id="newDlg">
+  <form method="dialog" onsubmit="return submitNew(event)">
+    <strong>New drawing</strong>
+    <label>DXF file (export DWG as DXF, R2007 or later)</label>
+    <input type="file" name="file" accept=".dxf" required>
+    <label>Source language</label>
+    <select name="source"><option value="ru">Russian</option><option value="ja">Japanese</option><option value="en">English</option></select>
+    <label>Target language</label>
+    <select name="target"><option value="en">English</option><option value="ja">Japanese</option></select>
+    <div class="row"><button type="button" onclick="newDlg.close()">Cancel</button><button class="primary" type="submit">Upload</button></div>
+  </form>
+</dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = async (url, opt={}) => {
+  const r = await fetch(url, opt);
+  if (!r.ok) { let t = await r.text(); try { t = JSON.parse(t).detail || t } catch(e){}; throw new Error(t) }
+  return r.headers.get('content-type')?.includes('json') ? r.json() : r;
+};
+let jobs = [], current = null, rows = [], tab = 'review', filter = 'all', search = '', poll = null, which = 'after', windowStack = [];
+
+async function loadJobs() {
+  jobs = await api('/api/jobs');
+  const el = $('#jobs');
+  el.innerHTML = jobs.length ? '' : '<div class="empty">No jobs yet</div>';
+  for (const j of jobs) {
+    const d = document.createElement('div');
+    d.className = 'job' + (current && current.id === j.id ? ' active' : '');
+    d.innerHTML = `<div class="n">${esc(j.name)}</div><div class="m">${j.source} → ${j.target} · ${j.created_at.replace('T',' ').slice(0,16)} ${statusChip(j)}</div>`;
+    d.onclick = () => openJob(j.id);
+    el.appendChild(d);
+  }
+}
+function statusChip(j) {
+  if (j.running) return `<span class="chip run">${j.running}…</span>`;
+  const s = j.stages || {};
+  if (s.patch) return `<span class="chip ok">${s.patch.verified ? 'patched · verified' : 'patched · CHECK'}</span>`;
+  if (s.translate) return `<span class="chip">review</span>`;
+  if (s.prepare) return `<span class="chip">ready to translate</span>`;
+  return `<span class="chip">new</span>`;
+}
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function openJob(id) {
+  current = await api('/api/jobs/' + id);
+  windowStack = [];
+  rows = await api(`/api/jobs/${id}/review`);
+  render(); loadJobs(); schedulePoll();
+}
+function schedulePoll() {
+  clearTimeout(poll);
+  if (current && current.running) poll = setTimeout(async () => {
+    const before = current.running;
+    current = await api('/api/jobs/' + current.id);
+    if (!current.running) { rows = await api(`/api/jobs/${current.id}/review`); render(); loadJobs(); }
+    else { renderHeader(); }
+    schedulePoll();
+  }, 2000);
+}
+
+function render() {
+  if (!current) return;
+  $('#view').innerHTML = `<div id="head"></div><div class="tabs">
+      ${['review','preview','report'].map(t => `<div class="tab ${tab===t?'active':''}" onclick="tab='${t}';render()">${t[0].toUpperCase()+t.slice(1)}</div>`).join('')}
+    </div><div id="body"></div>`;
+  renderHeader();
+  if (tab === 'review') renderReview(); else if (tab === 'preview') renderPreview(); else renderReport();
+}
+function renderHeader() {
+  const s = current.stages || {}, run = current.running;
+  const st = (name, label, info) => `<div class="stage ${run===name?'run':s[name]?'done':''}">${label}${info?' · '+info:''}</div>`;
+  const inv = s.inventory, pr = s.prepare, tr = s.translate, pa = s.patch;
+  const busy = !!run;
+  $('#head').innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:12px"><h2 style="margin:0;font-size:17px">${esc(current.name)}</h2>
+      <span class="sub" style="color:var(--mute)">${current.source} → ${current.target} · job ${current.id}</span></div>
+    ${current.error ? `<div class="err">${esc(current.error)}</div>` : ''}
+    <div class="stages">
+      ${st('inventory','1 Inventory', inv ? `${inv.strings} strings, ${inv.by_lang?.[current.source]||0} ${current.source}` : '')}
+      ${st('prepare','2 Prepare', pr ? `${pr.segments} unique${pr.paragraphs?', '+pr.paragraphs+' paragraphs':''}` : '')}
+      ${st('translate','3 Translate', tr ? `${tr.translated} ok${tr.from_memory?', '+tr.from_memory+' from memory':''}${tr.needs_attention?', '+tr.needs_attention+' need a human':''}` : '')}
+      ${st('review','4 Review', rows.length ? `${rows.filter(r=>r.approved).length}/${rows.length} approved` : '')}
+      ${st('patch','5 Patch & verify', pa ? `${pa.patched} entities${pa.narrowed?', '+pa.narrowed+' narrowed':''}${pa.overflow?', '+pa.overflow+' overflow':''} · geometry ${pa.verified?'unchanged':'CHANGED'}` : '')}
+    </div>
+    <div class="actions">
+      <button class="primary" ${busy||!pr?'disabled':''} onclick="act('translate')">${tr?'Re-translate':'Translate'}</button>
+      <button ${busy||!tr?'disabled':''} onclick="act('approve-all')">Approve all clean</button>
+      <button class="primary" ${busy||!tr?'disabled':''} onclick="act('patch')">${pa?'Re-patch':'Patch & verify'}</button>
+      <a ${pa?'':'style="pointer-events:none;opacity:.45"'} href="/api/jobs/${current.id}/download/output.dxf"><button>Download DXF</button></a>
+      <a ${pa?'':'style="pointer-events:none;opacity:.45"'} href="/api/jobs/${current.id}/download/report.md"><button>Report</button></a>
+      <button ${busy||!pa?'disabled':''} onclick="act('remember')" title="Reuse these approved translations on later sheets">Store in memory</button>
+      <span style="flex:1"></span>
+      <button ${busy?'disabled':''} onclick="del()">Delete</button>
+    </div>`;
+}
+async function act(what) {
+  try {
+    if (what === 'approve-all') { await api(`/api/jobs/${current.id}/approve-all`, {method:'POST'}); rows = await api(`/api/jobs/${current.id}/review`); render(); return; }
+    if (what === 'remember') { const r = await api(`/api/jobs/${current.id}/remember`, {method:'POST'}); alert(`${r.stored} translations stored in the memory for ${current.source}→${current.target}`); return; }
+    current = await api(`/api/jobs/${current.id}/${what}`, {method:'POST'});
+    render(); loadJobs(); schedulePoll();
+  } catch (e) { alert(e.message) }
+}
+async function del() {
+  if (!confirm('Delete this job and its files?')) return;
+  await api(`/api/jobs/${current.id}`, {method:'DELETE'}); current = null; rows = [];
+  $('#view').innerHTML = '<div class="empty">Pick a job on the left.</div>'; loadJobs();
+}
+
+// ── review ──
+function visible() {
+  const q = search.toLowerCase();
+  return rows.filter(r => {
+    if (filter === 'attention') { if (r.ok && !(r.note && r.note !== 'from memory') && !r.fit) return false; }
+    else if (filter === 'unapproved') { if (r.approved) return false; }
+    else if (filter === 'fit') { if (!r.fit) return false; }
+    else if (filter === 'edited') { if (!r.edited) return false; }
+    if (q && !(r.source.toLowerCase().includes(q) || r.target.toLowerCase().includes(q))) return false;
+    return true;
+  });
+}
+function renderReview() {
+  const body = $('#body');
+  if (!rows.length) { body.innerHTML = `<div class="empty">${current.running ? 'Working…' : 'Nothing to review yet. Translate first.'}</div>`; return; }
+  const v = visible();
+  body.innerHTML = `
+    <div class="filters">
+      ${[['all','All'],['attention','Needs attention'],['fit','Fit flags'],['unapproved','Not approved'],['edited','Edited']].map(([k,l]) =>
+        `<button class="${filter===k?'primary':''}" onclick="filter='${k}';renderReview()">${l}</button>`).join('')}
+      <input type="text" placeholder="Search…" value="${esc(search)}" oninput="search=this.value;renderReview()">
+      <span class="count">${v.length} of ${rows.length} strings · a string covers every entity with the same source text</span>
+    </div>
+    <table><thead><tr><th></th><th>Source</th><th>Translation (click to edit)</th><th>×</th><th>Fit</th><th>Note</th></tr></thead>
+    <tbody>${v.map(r => `<tr data-id="${r.id}" class="${r.edited?'dirty':''}">
+      <td><input type="checkbox" ${r.approved?'checked':''} onchange="setRow('${r.id}',{approved:this.checked})" title="approved"></td>
+      <td class="src">${esc(r.source)}</td>
+      <td class="tgt"><textarea rows="${Math.max(1, Math.ceil(r.target.length/40) + (r.target.match(/\n/g)||[]).length)}" onchange="setRow('${r.id}',{text:this.value})">${esc(r.target)}</textarea></td>
+      <td class="small">${r.count}${r.lines>1?` · ${r.lines} lines`:''}${r.edited?` <button title="Back to the model's translation" style="padding:0 5px;font-size:11px" onclick="setRow('${r.id}',{revert:true})">↺</button>`:''}</td>
+      <td class="small">${fitChip(r)}</td>
+      <td class="small" style="white-space:normal">${r.ok?'':'<span class="chip bad">needs a human</span> '}${r.note && r.note!=='from memory' ? esc(r.note) : r.note==='from memory' ? '<span class="chip">memory</span>' : ''}</td>
+    </tr>`).join('')}</tbody></table>`;
+}
+function fitChip(r) {
+  if (!r.fit) return '';
+  const cls = r.fit === 'overflow' ? 'bad' : r.fit === 'tight' ? 'warn' : '';
+  return `<span class="chip ${cls}">${r.fit}${r.width_factor<1?' · w'+r.width_factor:''}</span>`;
+}
+async function setRow(id, body) {
+  try {
+    const r = await api(`/api/jobs/${current.id}/segments/${id}`, {method:'PATCH', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
+    const i = rows.findIndex(x => x.id === id); if (i >= 0) rows[i] = r;
+    const tr = document.querySelector(`tr[data-id="${id}"]`); if (tr) tr.className = r.edited ? 'dirty' : '';
+    if (body.revert) renderReview();
+    renderHeader();
+  } catch (e) { alert(e.message) }
+}
+
+// ── preview ──
+function renderPreview() {
+  const hasAfter = !!(current.stages||{}).patch;
+  if (which === 'after' && !hasAfter) which = 'before';
+  $('#body').innerHTML = `
+    <div class="filters">
+      <button class="${which==='before'?'primary':''}" onclick="which='before';windowStack=[];renderPreview()">Before</button>
+      <button class="${which==='after'?'primary':''}" ${hasAfter?'':'disabled'} onclick="which='after';windowStack=[];renderPreview()">After</button>
+      <button ${windowStack.length?'':'disabled'} onclick="windowStack.pop();renderPreview()">↩ Back</button>
+      <span class="count">Drag a rectangle to zoom into that area. Large sheets take up to a minute to draw.</span>
+    </div>
+    <div class="preview" id="pv"><div class="busy">Drawing…</div></div>`;
+  const win = windowStack[windowStack.length-1];
+  const url = `/api/jobs/${current.id}/preview/${which}` + (win ? `?x0=${win[0]}&y0=${win[1]}&x1=${win[2]}&y1=${win[3]}` : '');
+  fetch(url).then(async r => {
+    if (!r.ok) throw new Error(await r.text());
+    const drawn = JSON.parse(r.headers.get('X-Window') || 'null');
+    const blob = await r.blob(); const img = new Image(); img.src = URL.createObjectURL(blob);
+    img.onload = () => { const pv = $('#pv'); pv.innerHTML = ''; pv.appendChild(img); if (drawn) dragZoom(pv, img, drawn); };
+  }).catch(e => { $('#pv').innerHTML = `<div class="err">${esc(e.message)}</div>` });
+}
+function dragZoom(pv, img, drawn) {
+  let start = null, box = null;
+  const toDrawing = (px, py) => {
+    const r = img.getBoundingClientRect();
+    const fx = (px - r.left) / r.width, fy = (py - r.top) / r.height;
+    return [drawn[0] + fx * (drawn[2]-drawn[0]), drawn[3] - fy * (drawn[3]-drawn[1])];
+  };
+  img.draggable = false;
+  pv.onmousedown = e => { e.preventDefault(); start = [e.clientX, e.clientY]; box = document.createElement('div'); box.className = 'box'; pv.appendChild(box); };
+  pv.onmouseleave = () => { if (start) { start = null; box.remove(); } };
+  pv.onmousemove = e => { if (!start) return; const r = pv.getBoundingClientRect();
+    const x = Math.min(start[0], e.clientX) - r.left, y = Math.min(start[1], e.clientY) - r.top;
+    Object.assign(box.style, {left: x+'px', top: y+'px', width: Math.abs(e.clientX-start[0])+'px', height: Math.abs(e.clientY-start[1])+'px'}); };
+  pv.onmouseup = e => { if (!start) return; const a = toDrawing(start[0], start[1]), b = toDrawing(e.clientX, e.clientY); start = null; box.remove();
+    const w = [Math.min(a[0],b[0]), Math.min(a[1],b[1]), Math.max(a[0],b[0]), Math.max(a[1],b[1])];
+    if ((w[2]-w[0]) > (drawn[2]-drawn[0]) * 0.01) { windowStack.push(w); renderPreview(); } };
+}
+
+// ── report ──
+async function renderReport() {
+  const body = $('#body');
+  if (!(current.stages||{}).patch) { body.innerHTML = '<div class="empty">The report is written when the drawing is patched.</div>'; return; }
+  const r = await fetch(`/api/jobs/${current.id}/download/report.md`);
+  body.innerHTML = `<pre>${esc(await r.text())}</pre>`;
+}
+
+// ── new job ──
+function openNew() { $('#newDlg').showModal(); }
+async function submitNew(e) {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  try { const j = await api('/api/jobs', {method:'POST', body: fd}); $('#newDlg').close(); e.target.reset(); await openJob(j.id); }
+  catch (err) { alert(err.message) }
+  return false;
+}
+loadJobs();
+</script>
+</body>
+</html>

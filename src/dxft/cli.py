@@ -8,6 +8,7 @@
   dxft patch <job-id>                            write output.dxf from approved rows
   dxft verify <job-id>                           re-check output against input
   dxft remember <job-id>                         store reviewed translations in the memory (reused on later sheets)
+  dxft serve [--port 8765]                       the web app
 """
 from __future__ import annotations
 
@@ -84,6 +85,12 @@ def cmd_verify(a):
     print(json.dumps(v.__dict__, indent=2))
 
 
+def cmd_serve(a):
+    from .web import serve
+    print(f"Cworks Drawing Translator: http://{a.host}:{a.port}")
+    serve(a.host, a.port, Path(a.jobs))
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="dxft", description="Cworks Drawing Translator")
     p.add_argument("--jobs", default=str(JOBS))
@@ -100,6 +107,7 @@ def main(argv=None):
     s.add_argument("--learn", action="store_true"); s.set_defaults(fn=cmd_patch)
     s = sub.add_parser("remember", help="store a reviewed job's translations in the memory"); s.add_argument("job"); s.set_defaults(fn=cmd_remember)
     s = sub.add_parser("verify"); s.add_argument("job"); s.set_defaults(fn=cmd_verify)
+    s = sub.add_parser("serve"); s.add_argument("--host", default="127.0.0.1"); s.add_argument("--port", type=int, default=8765); s.set_defaults(fn=cmd_serve)
 
     a = p.parse_args(argv)
     a.fn(a)

@@ -233,6 +233,18 @@ LATIN_FONT = "notos"   # Noto Sans (pymupdf-fonts): Latin + Cyrillic, so kept co
 CJK_FONT = "japan"     # built-in CJK font; also covers Cyrillic
 
 
+_FONTS: dict = {}
+
+
+def _pdf_font(fontname: str):
+    """pymupdf.Font for measuring; names from pymupdf-fonts ('notos') and
+    built-ins ('japan') both resolve by name."""
+    import pymupdf
+    if fontname not in _FONTS:
+        _FONTS[fontname] = pymupdf.Font(fontname)
+    return _FONTS[fontname]
+
+
 def _font_for(font_name: str, target: str) -> str:
     return CJK_FONT if target in ("ja", "zh") else LATIN_FONT
 
@@ -309,7 +321,7 @@ def apply(doc, geo: dict[str, dict], segments, approved: dict[str, str], target:
                 origin = pymupdf.Point(x1, y0 + (y1 - y0) * 0.22)
             # narrow to fit the original box as well as the layout's factor
             avail = max(allowed, (x1 - x0) if rot in (0, 180) else (y1 - y0))
-            need = pymupdf.get_text_length(line, fontname=fontname, fontsize=size)
+            need = _pdf_font(fontname).text_length(line, fontsize=size)
             sx = min(avail / need if need > 0 else 1.0, 1.0)
             sx = max(sx, 0.55)
             m = pymupdf.Matrix(sx, 1) if rot in (0, 180) else pymupdf.Matrix(1, sx)

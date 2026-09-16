@@ -103,6 +103,17 @@ def simplify_mtext(raw: str) -> str:
     return "".join(out)
 
 
+# Russian standards and drawing-set codes written in Latin in English editions.
+# Applied at write time, whole words only, so a model that kept them in
+# Cyrillic still yields "SP 60.13330.2012". Grid axes and marks are untouched.
+TRANSLIT = [(re.compile(rf"(?<![А-Яа-яЁё\w]){k}(?![А-Яа-яЁё])"), v) for k, v in [
+    ("ГОСТ Р", "GOST R"), ("ГОСТ", "GOST"), ("СНиП", "SNiP"), ("СанПиН", "SanPiN"), ("СП", "SP"), ("ТУ", "TU"),
+    ("ПУЭ", "PUE"), ("ППБ", "PPB"), ("НПБ", "NPB"), ("РД", "RD"), ("АР", "AR"), ("ОВ", "OV"), ("ВК", "VK"), ("ЭОМ", "EOM"),
+    ("ЭО", "EO"), ("ЭМ", "EM"), ("ИОС", "IOS"), ("ПОС", "POS"), ("КЖ", "KZh"), ("КМ", "KM"), ("ГП", "GP"), ("ТХ", "TKh"),
+    ("СС", "SS"), ("ПЗ", "PZ"), ("ПБ", "PB"), ("ИТП", "ITP"), ("ГКЛ", "GKL"), ("ПВХ", "PVC"),
+]]
+
+
 def latinize(text: str) -> str:
     """For Latin-script output: full-width punctuation and letters become
     their ASCII forms (NFKC), Japanese bullets become "- ". Fonts like Arial
@@ -113,6 +124,8 @@ def latinize(text: str) -> str:
         line = unicodedata.normalize("NFKC", line).replace("・", "·").replace("･", "·")
         line = re.sub(r"^(\s*)[·•]\s*", r"\1- ", line)
         line = line.replace("〜", "–").replace("～", "–")
+        for rx, rep in TRANSLIT:
+            line = rx.sub(rep, line)
         out.append(line)
     return "\n".join(out)
 

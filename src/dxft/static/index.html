@@ -293,6 +293,7 @@ async function setRow(id, body) {
 function renderPreview() {
   const hasAfter = !!(current.stages||{}).patch;
   if (which === 'after' && !hasAfter) which = 'before';
+  const hint = hasAfter ? '' : (current.stages||{}).translate ? ' · translated, not yet written: press <b>Patch &amp; verify</b> to see the After view' : ' · not translated yet';
   $('#body').innerHTML = `
     <div class="filters">
       <button class="${which==='before'?'primary':''}" onclick="which='before';windowStack=[];renderPreview()">Before</button>
@@ -300,7 +301,7 @@ function renderPreview() {
       <button ${windowStack.length?'':'disabled'} onclick="windowStack.pop();renderPreview()">↩ Back</button>
       ${current.fmt==='pdf' ? `<span style="margin-left:8px">Page <input type="text" id="pg" value="${page}" style="width:56px" onchange="page=parseInt(this.value)||1;windowStack=[];renderPreview()"> of ${(current.stages?.inventory||{}).pages||'?'}</span>` : ''}
       ${current.fmt!=='pdf' && sheetList.length>1 ? `<span style="margin-left:8px">Sheet <select onchange="sheet=parseInt(this.value);windowStack=[];renderPreview()">${['<option value="0"'+(sheet===0?' selected':'')+'>whole drawing</option>'].concat(sheetList.map((b,i)=>`<option value="${i+1}" ${sheet===i+1?'selected':''}>${i+1} of ${sheetList.length}</option>`)).join('')}</select></span>` : ''}
-      <span class="count">Drag a rectangle to zoom into that area. Large sheets take up to a minute to draw.</span>
+      <span class="count">Drag a rectangle to zoom into that area. Large sheets take up to a minute to draw.${hint}</span>
     </div>
     <div class="preview" id="pv"><div class="busy"><div class="spin"></div><div id="pvmsg">Drawing… (a big sheet can take a minute or two the first time)</div></div></div>`;
   const t0 = Date.now(); const tick = setInterval(() => { const m = $('#pvmsg'); if (!m) return clearInterval(tick); m.textContent = `Drawing… ${Math.round((Date.now()-t0)/1000)} s (a big sheet can take a minute or two the first time; after that it is instant)`; }, 1000);

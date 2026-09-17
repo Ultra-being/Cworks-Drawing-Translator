@@ -178,6 +178,10 @@ def translate(job_id: str, mode: str = "claude"):
     def run():
         job.translate(mode)
         job.approve_all_ok()
+        _running[job_id]["step"] = "patch"
+        job.patch()              # write the drawing straight away; edits go in with Re-patch
+        for p in job.dir.glob("preview_after*.png"):
+            p.unlink()
 
     _background(job_id, "translate", run)
     return _state(job_id)

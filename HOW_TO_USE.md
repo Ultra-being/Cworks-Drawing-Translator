@@ -31,6 +31,8 @@ One row per unique string. The **×** column says how many places on the drawing
 - Untick a row to leave that string untranslated in the output.
 - **Filters**: *Needs attention* shows what a human must check; *Fit flags* shows strings that had to be squeezed.
 
+Fitting is automatic on every job: each string is measured in the font it will be drawn in, against the room it has on the sheet; it is re-wrapped, narrowed (down to 60 %), and if still too long the app asks the model for shorter wording within the exact budget. Only what survives all of that is flagged.
+
 What the notes mean:
 
 | Note / flag | Meaning | What to do |
@@ -39,7 +41,8 @@ What the notes mean:
 | **name reading unverified** | A personal name was romanised; the reading can't be verified from the drawing. | Check with the client or the drawing register. |
 | **memory** | Reused from an earlier approved job. | Nothing, unless it's wrong — then edit it and it will be relearned when you store the job. |
 | **long / tight · w0.8** | English is wider than the original; it was narrowed to 80 % width to fit. | Fine down to about w0.7. Below that, consider a shorter wording. |
-| **overflow** | Even at the narrowest readable width it does not fit. | Shorten the translation. |
+| **shortened to fit** | It didn't fit at first; the app asked for tighter wording within the exact room and got it. | Glance at it — it will read as drafting shorthand ("Equip.", "Dist. bd."). |
+| **overflow** | Even after re-wording and narrowing it does not fit. Rare. | Shorten the translation yourself. |
 
 Grid axes, marks like **ОК-9.1** or **Д-9л**, numbers, model numbers and codes are deliberately left as they are — a reader matches them against the schedules.
 

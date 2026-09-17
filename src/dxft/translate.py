@@ -216,6 +216,41 @@ def _name_note(source_lang: str, source: str) -> str:
     return "name reading unverified" if source_lang == "ja" and JA_NAME.search(source) else ""
 
 
+def shorten(translator, segments: list, current: dict, budgets: dict, source: str, target: str, attempts: int = 2) -> dict:
+    """Ask for tighter wording for strings that did not fit. `budgets` maps
+    segment id -> maximum characters. Returns id -> new text for those the
+    model brought within budget. Works with ClaudeTranslator; mock = no-op."""
+    if not hasattr(translator, "_call"):
+        return {}
+    out: dict[str, str] = {}
+    todo = [s for s in segments if s.id in budgets]
+    system = build_system(source, target)
+    for _ in range(attempts):
+        if not todo:
+            break
+        payload = [{"id": s.id, "source": s.source, "current": current[s.id], "max_chars": budgets[s.id]} for s in todo]
+        user = (
+            f"Source language: {LANG_NAME.get(source, source)}. Target language: {LANG_NAME.get(target, target)}.\n"
+            "These translations are too long for the room on the drawing. Rewrite each within max_chars: "
+            "drop articles and filler, use the standard abbreviations from the rules, keep every number, code and ⟦n⟧ marker. "
+            "Return ONLY a JSON object mapping id to the shorter text.\n\n" + json.dumps(payload, ensure_ascii=False)
+        )
+        try:
+            mapping = translator._parse(translator._call(system, user))
+        except Exception:
+            break
+        still = []
+        for s in todo:
+            t, _ = mapping.get(s.id, ("", ""))
+            t = _clean(t, target)
+            if t.strip() and markers_ok(s.source, t) and len(MARK_RE.sub("", t)) <= budgets[s.id]:
+                out[s.id] = t
+            else:
+                still.append(s)
+        todo = still
+    return out
+
+
 class MockTranslator:
     """No API. Wraps text so the round trip is visible in the drawing."""
     usage = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}

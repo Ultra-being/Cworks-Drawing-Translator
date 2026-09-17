@@ -54,6 +54,7 @@ a{color:#1f4e79} .top{font-size:12px;color:#6b6a66;margin-bottom:18px}
 <li>Untick a row to leave that string untranslated in the output.</li>
 <li><strong>Filters</strong>: <em>Needs attention</em> shows what a human must check; <em>Fit flags</em> shows strings that had to be squeezed.</li>
 </ul>
+<p>Fitting is automatic on every job: each string is measured in the font it will be drawn in, against the room it has on the sheet; it is re-wrapped, narrowed (down to 60 %), and if still too long the app asks the model for shorter wording within the exact budget. Only what survives all of that is flagged.</p>
 <p>What the notes mean:</p>
 <table>
 <thead>
@@ -85,9 +86,14 @@ a{color:#1f4e79} .top{font-size:12px;color:#6b6a66;margin-bottom:18px}
 <td>Fine down to about w0.7. Below that, consider a shorter wording.</td>
 </tr>
 <tr>
+<td><strong>shortened to fit</strong></td>
+<td>It didn't fit at first; the app asked for tighter wording within the exact room and got it.</td>
+<td>Glance at it — it will read as drafting shorthand ("Equip.", "Dist. bd.").</td>
+</tr>
+<tr>
 <td><strong>overflow</strong></td>
-<td>Even at the narrowest readable width it does not fit.</td>
-<td>Shorten the translation.</td>
+<td>Even after re-wording and narrowing it does not fit. Rare.</td>
+<td>Shorten the translation yourself.</td>
 </tr>
 </tbody>
 </table>

@@ -197,8 +197,32 @@ class Job:
             self._meta = m
             self.save_meta()
         fits = fitmod.assess(segments, results, meta["target"])
+        # Strings that still overflow after wrapping and narrowing: ask for
+        # tighter wording within the exact budget, then measure again.
+        over = {f.id for f in fits if f.flag == "overflow"}
+        shortened = 0
+        if over and mode != "mock":
+            seg_by_id = {s.id: s for s in segments}
+            budgets = {}
+            for f in fits:
+                if f.id in over:
+                    s = seg_by_id[f.id]
+                    room = min(c for c in s.caps if c > 0) * s.lines if any(c > 0 for c in s.caps) else 0
+                    budgets[f.id] = max(4, int(room / 0.6 * 0.95)) if room else 0
+            budgets = {k: v for k, v in budgets.items() if v}
+            by_id = {t.id: t for t in results}
+            new_text = tr.shorten(translator, [seg_by_id[i] for i in budgets], {i: by_id[i].target for i in budgets}, budgets, source, meta["target"])
+            for sid, text in new_text.items():
+                by_id[sid].target = text
+                by_id[sid].note = (by_id[sid].note + "; " if by_id[sid].note else "") + "shortened to fit"
+                shortened += 1
+            if shortened:
+                _w(self.dir / "translations.json", {"mode": mode, "model": getattr(translator, "model", mode), "usage": translator.usage,
+                                                    "from_memory": len(remembered), "translations": [asdict(t) for t in results]})
+                fits = fitmod.assess(segments, results, meta["target"])
         _w(self.dir / "fit.json", [asdict(f) for f in fits])
-        info = {"translated": sum(1 for t in results if t.ok), "from_memory": len(remembered), "needs_attention": sum(1 for t in results if not t.ok),
+        info = {"translated": sum(1 for t in results if t.ok), "from_memory": len(remembered), "shortened_to_fit": shortened,
+                "needs_attention": sum(1 for t in results if not t.ok),
                 "flagged": {k: sum(1 for f in fits if f.flag == k) for k in ("long", "tight", "overflow")}, "usage": translator.usage}
         self._stage_done("translate", **info)
         return info

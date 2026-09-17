@@ -68,6 +68,10 @@
   dialog{border:1px solid var(--line);border-radius:8px;padding:20px;width:420px}
   dialog label{display:block;margin:10px 0 4px;font-size:12px;color:var(--mute)}
   dialog .row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+  .pick{display:flex;gap:6px} .pick select,.pick input{flex:1;min-width:0}
+  .proj>.ph .add{margin-left:6px;border:1px solid var(--line);border-radius:4px;padding:0 5px;font-size:11px;color:var(--mute);background:#fff;cursor:pointer}
+  .proj>.ph .add:hover{color:var(--accent);border-color:var(--accent)}
+  .job[draggable=true]{cursor:grab} .ph.dragover,.fh.dragover{background:#e3ecf5;outline:1px dashed var(--accent)}
 </style>
 </head>
 <body>
@@ -84,15 +88,26 @@
   <section id="view"><div class="empty">Upload a DXF to start, or pick a job on the left.</div></section>
 </main>
 
+<dialog id="moveDlg">
+  <form method="dialog" onsubmit="return submitMove(event)">
+    <strong>Move to folder</strong>
+    <label>Client</label>
+    <div class="pick"><select id="mvClient" onchange="pickClient(this,'mv')"></select><input type="text" id="mvClientNew" placeholder="new client name" style="display:none"></div>
+    <label>Project</label>
+    <div class="pick"><select id="mvProject" onchange="pickProject(this,'mv')"></select><input type="text" id="mvProjectNew" placeholder="new project name" style="display:none"></div>
+    <div class="row"><button type="button" onclick="moveDlg.close()">Cancel</button><button class="primary" type="submit">Move</button></div>
+  </form>
+</dialog>
+
 <dialog id="newDlg">
   <form method="dialog" onsubmit="return submitNew(event)">
     <strong>New drawing</strong>
     <label>Drawing file: .dxf (export DWG as DXF, R2007 or later) or a vector .pdf plotted from CAD</label>
     <input type="file" name="file" accept=".dxf,.pdf" required>
     <label>Client</label>
-    <input type="text" name="client" list="clients" placeholder="e.g. Cworks – Gotanda" style="width:100%"><datalist id="clients"></datalist>
+    <div class="pick"><select id="upClient" onchange="pickClient(this,'up')"></select><input type="text" id="upClientNew" placeholder="new client name" style="display:none"></div>
     <label>Project</label>
-    <input type="text" name="project" list="projects" placeholder="e.g. Electrical set 2026-09" style="width:100%"><datalist id="projects"></datalist>
+    <div class="pick"><select id="upProject" onchange="pickProject(this,'up')"></select><input type="text" id="upProjectNew" placeholder="new project name" style="display:none"></div>
     <label>Source language</label>
     <select name="source"><option value="ru">Russian</option><option value="ja">Japanese</option><option value="en">English</option></select>
     <label>Target language</label>
@@ -119,27 +134,31 @@ async function loadJobs() {
   el.innerHTML = jobs.length ? '' : '<div class="empty">No jobs yet</div>';
   const tree = {};
   for (const j of jobs) { const c = j.client || 'Unfiled', p = j.project || 'General'; ((tree[c] ??= {})[p] ??= []).push(j); }
+  folderTree = tree;
   const clients = Object.keys(tree).sort((a, b) => a === 'Unfiled' ? 1 : b === 'Unfiled' ? -1 : a.localeCompare(b));
   if (openFolders.has('*first*')) { openFolders.delete('*first*'); clients.forEach(c => openFolders.add(c)); localStorage.setItem('dxft.open', JSON.stringify([...openFolders])); }
-  $('#clients').innerHTML = clients.map(c => `<option value="${esc(c)}">`).join('');
-  $('#projects').innerHTML = [...new Set(jobs.map(j => j.project || 'General'))].map(p => `<option value="${esc(p)}">`).join('');
   for (const c of clients) {
     const open = openFolders.has(c);
     const f = document.createElement('div'); f.className = 'folder' + (open ? '' : ' collapsed');
     const n = Object.values(tree[c]).reduce((a, l) => a + l.length, 0);
     f.innerHTML = `<div class="fh"><span>${open ? '▾' : '▸'}</span><span>${esc(c)}</span><span class="n">${n}</span></div>`;
     f.firstChild.onclick = () => toggleFolder(c);
+    dropTarget(f.firstChild, c, null);
     for (const p of Object.keys(tree[c]).sort()) {
       const pk = c + '/' + p;
       const popen = openFolders.has(pk);
       const pd = document.createElement('div'); pd.className = 'proj' + (popen ? '' : ' collapsed');
-      pd.innerHTML = `<div class="ph"><span>${popen ? '▾' : '▸'}</span><span>${esc(p)}</span><span style="margin-left:auto">${tree[c][p].length}</span></div>`;
+      pd.innerHTML = `<div class="ph"><span>${popen ? '▾' : '▸'}</span><span>${esc(p)}</span><span style="margin-left:auto">${tree[c][p].length}</span><span class="add" title="Upload a drawing into this folder">+</span></div>`;
       pd.firstChild.onclick = () => toggleFolder(pk);
+      pd.querySelector('.add').onclick = (e) => { e.stopPropagation(); openNew(c, p); };
+      dropTarget(pd.firstChild, c, p);
       for (const j of tree[c][p]) {
         const d = document.createElement('div');
         d.className = 'job' + (current && current.id === j.id ? ' active' : '');
         d.innerHTML = `<div class="n">${esc(j.name)}</div><div class="m">${j.source} → ${j.target} · ${j.created_at.replace('T',' ').slice(0,16)} ${statusChip(j)}</div>`;
         d.onclick = () => openJob(j.id);
+        d.draggable = true;
+        d.ondragstart = (e) => { e.dataTransfer.setData('text/plain', j.id); e.dataTransfer.effectAllowed = 'move'; };
         pd.appendChild(d);
       }
       f.appendChild(pd);
@@ -147,12 +166,47 @@ async function loadJobs() {
     el.appendChild(f);
   }
 }
+let folderTree = {};
+function fillPickers(prefix, client, project) {
+  const cs = $('#' + prefix + 'Client'), ps = $('#' + prefix + 'Project');
+  const clients = Object.keys(folderTree).sort();
+  cs.innerHTML = clients.map(c => `<option value="${esc(c)}" ${c === client ? 'selected' : ''}>${esc(c)}</option>`).join('') + '<option value="__new__">New client…</option>';
+  if (client && !clients.includes(client)) cs.value = '__new__';
+  pickClient(cs, prefix, project);
+}
+function pickClient(sel, prefix, project) {
+  const isNew = sel.value === '__new__';
+  $('#' + prefix + 'ClientNew').style.display = isNew ? '' : 'none';
+  const ps = $('#' + prefix + 'Project');
+  const projects = isNew ? [] : Object.keys(folderTree[sel.value] || {}).sort();
+  ps.innerHTML = projects.map(p => `<option value="${esc(p)}" ${p === project ? 'selected' : ''}>${esc(p)}</option>`).join('') + '<option value="__new__">New project…</option>';
+  if (!projects.length || (project && !projects.includes(project))) ps.value = '__new__';
+  pickProject(ps, prefix);
+}
+function pickProject(sel, prefix) { $('#' + prefix + 'ProjectNew').style.display = sel.value === '__new__' ? '' : 'none'; }
+function pickedFolder(prefix) {
+  const c = $('#' + prefix + 'Client').value, p = $('#' + prefix + 'Project').value;
+  return { client: (c === '__new__' ? $('#' + prefix + 'ClientNew').value : c).trim(), project: (p === '__new__' ? $('#' + prefix + 'ProjectNew').value : p).trim() };
+}
 let spendData = null;
 async function loadSpend() {
   try { spendData = await api('/api/spend'); } catch (e) { return; }
   const y = spendData.jpy;
   $('#spend').innerHTML = `<span>Today <b>¥${y.today.toLocaleString()}</b></span><span>This month <b>¥${y.month.toLocaleString()}</b></span><span>All time <b>¥${y.all.toLocaleString()}</b></span><span title="rate in workspaces/pricing.json">@ ¥${spendData.jpy_per_usd}/$ · est.</span>`;
   if (current) renderHeader();
+}
+function dropTarget(el, client, project) {
+  el.ondragover = (e) => { e.preventDefault(); el.classList.add('dragover'); };
+  el.ondragleave = () => el.classList.remove('dragover');
+  el.ondrop = async (e) => {
+    e.preventDefault(); el.classList.remove('dragover');
+    const id = e.dataTransfer.getData('text/plain'); if (!id) return;
+    const j = jobs.find(x => x.id === id); if (!j) return;
+    const body = { client, project: project || (Object.keys(folderTree[client] || {})[0] || 'General') };
+    await api(`/api/jobs/${id}`, {method:'PATCH', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
+    if (current && current.id === id) { current = await api('/api/jobs/' + id); renderHeader(); }
+    loadJobs();
+  };
 }
 function statusChip(j) {
   if (j.running) return `<span class="chip run">${j.running}…</span>`;
@@ -242,11 +296,12 @@ async function saveAs(name) {
     const w = await handle.createWritable(); await w.write(await r.blob()); await w.close();
   } catch (e) { if (e.name !== 'AbortError') alert(e.message); }
 }
-async function moveJob() {
-  const client = prompt('Client folder:', current.client || 'Unfiled'); if (client === null) return;
-  const project = prompt('Project folder:', current.project || 'General'); if (project === null) return;
-  current = await api(`/api/jobs/${current.id}`, {method:'PATCH', headers:{'content-type':'application/json'}, body: JSON.stringify({client, project})});
-  render(); loadJobs();
+function moveJob() { fillPickers('mv', current.client || 'Unfiled', current.project || 'General'); $('#moveDlg').showModal(); }
+async function submitMove(e) {
+  e.preventDefault();
+  const f = pickedFolder('mv'); if (!f.client || !f.project) { alert('Give the client and project a name'); return false; }
+  current = await api(`/api/jobs/${current.id}`, {method:'PATCH', headers:{'content-type':'application/json'}, body: JSON.stringify(f)});
+  $('#moveDlg').close(); render(); loadJobs(); return false;
 }
 async function del() {
   if (!confirm('Delete this job and its files?')) return;
@@ -355,10 +410,15 @@ async function renderReport() {
 }
 
 // ── new job ──
-function openNew() { $('#newDlg').showModal(); }
+function openNew(client, project) {
+  fillPickers('up', client || (current && current.client) || Object.keys(folderTree)[0] || '', project || (current && current.project) || '');
+  $('#newDlg').showModal();
+}
 async function submitNew(e) {
   e.preventDefault();
   const fd = new FormData(e.target);
+  const f = pickedFolder('up'); if (!f.client || !f.project) { alert('Give the client and project a name'); return false; }
+  fd.set('client', f.client); fd.set('project', f.project);
   try { const j = await api('/api/jobs', {method:'POST', body: fd}); $('#newDlg').close(); e.target.reset(); await openJob(j.id); }
   catch (err) { alert(err.message) }
   return false;

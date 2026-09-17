@@ -109,7 +109,7 @@
     <label>Project</label>
     <div class="pick"><select id="upProject" onchange="pickProject(this,'up')"></select><input type="text" id="upProjectNew" placeholder="new project name" style="display:none"></div>
     <label>Source language</label>
-    <select name="source"><option value="ru">Russian</option><option value="ja">Japanese</option><option value="en">English</option></select>
+    <select name="source"><option value="ja">Japanese</option><option value="ru">Russian</option><option value="en">English</option></select>
     <label>Target language</label>
     <select name="target"><option value="en">English</option><option value="ja">Japanese</option></select>
     <div class="row"><button type="button" onclick="newDlg.close()">Cancel</button><button class="primary" type="submit">Upload</button></div>
@@ -411,7 +411,11 @@ async function renderReport() {
 
 // ── new job ──
 function openNew(client, project) {
-  fillPickers('up', client || (current && current.client) || Object.keys(folderTree)[0] || '', project || (current && current.project) || '');
+  const c = client || (current && current.client) || Object.keys(folderTree)[0] || '', p = project || (current && current.project) || '';
+  fillPickers('up', c, p);
+  // default languages: what this folder's jobs already use
+  const sib = jobs.filter(j => (j.client || 'Unfiled') === c && (!p || (j.project || 'General') === p));
+  if (sib.length) { const f = $('#newDlg form'); f.source.value = sib[sib.length - 1].source; f.target.value = sib[sib.length - 1].target; }
   $('#newDlg').showModal();
 }
 async function submitNew(e) {

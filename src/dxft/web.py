@@ -317,7 +317,7 @@ def preview_png(job_id: str, which: str, x0: float | None = None, y0: float | No
         if inv.exists():
             found = preview.sheets(inv)
             window = found[0] if len(found) == 1 else preview.text_extent(inv)
-    key = ("overview" if (x0 is None) else f"{int(window[0])}_{int(window[1])}_{int(window[2])}_{int(window[3])}_{width}") + "_v3"
+    key = ("overview" if (x0 is None) else f"{int(window[0])}_{int(window[1])}_{int(window[2])}_{int(window[3])}_{width}") + "_" + _preview_version()
     png = job.dir / f"preview_{which}_{key}.png"
     if not png.exists():
         drawn = preview.render(src, png, window, width_px=width)
@@ -330,6 +330,11 @@ def preview_png(job_id: str, which: str, x0: float | None = None, y0: float | No
     return FileResponse(str(png), media_type="image/png", headers=headers)
 
 
+def _preview_version() -> str:
+    """Previews are cached per deployed version: a renderer change redraws everything."""
+    return "v" + os.environ.get("RENDER_GIT_COMMIT", "local")[:7]
+
+
 def _preview_pdf(job: Job, src: Path, which: str, page: int, x0, y0, x1, y1, width: int):
     """PDF pages render directly. Windows arrive in 'up' coordinates (y negated),
     the same frame the inventory uses, and go back the same way."""
@@ -339,10 +344,10 @@ def _preview_pdf(job: Job, src: Path, which: str, page: int, x0, y0, x1, y1, wid
     pg = doc[page - 1]
     if None not in (x0, y0, x1, y1):
         clip = pymupdf.Rect(min(x0, x1), -max(y0, y1), max(x0, x1), -min(y0, y1))
-        key = f"p{page}_{int(clip.x0)}_{int(clip.y0)}_{int(clip.x1)}_{int(clip.y1)}_{width}"
+        key = f"p{page}_{int(clip.x0)}_{int(clip.y0)}_{int(clip.x1)}_{int(clip.y1)}_{width}_{_preview_version()}"
     else:
         clip = pg.rect
-        key = f"p{page}_overview"
+        key = f"p{page}_overview_{_preview_version()}"
     png = job.dir / f"preview_{which}_{key}.png"
     if not png.exists():
         zoom = width / max(clip.width, 1)

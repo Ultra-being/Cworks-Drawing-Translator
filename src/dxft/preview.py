@@ -58,6 +58,64 @@ def ensure_cjk_fallback() -> None:
         pass
 
 
+CJK_FONT_FILE = "DroidSansFallback.ttf"
+
+
+def cjk_font_status() -> dict:
+    """What the renderer would use — for /api/debug/fonts."""
+    ensure_cjk_fallback()
+    from ezdxf.fonts import fonts
+    fm = fonts.font_manager
+    info = {"fallback": None, "has_cjk_file": None, "resolves_arial": None, "resolves_txt": None, "cache_size": None}
+    try:
+        info["fallback"] = fm.fallback_font_name()
+        info["has_cjk_file"] = fm.has_font(CJK_FONT_FILE)
+        info["resolves_arial"] = str(fm.get_font_face("arial.ttf"))
+        info["resolves_txt"] = str(fm.get_font_face("txt"))
+        info["cache_size"] = len(getattr(fm._font_cache, "_cache", {}))
+    except Exception as ex:
+        info["error"] = repr(ex)
+    return info
+
+
+def _point_cjk_styles_at_cjk_font(doc) -> list[str]:
+    """Preview only: every text style used by a string with CJK characters is
+    set to the bundled CJK font, so the picture shows the characters whatever
+    the platform's fallback is. The document on disk is never touched."""
+    import re
+    from ezdxf.fonts import fonts
+    fm = fonts.font_manager
+    if not fm.has_font(CJK_FONT_FILE):
+        return []
+    cjk = re.compile(r"[぀-ヿ一-鿿ｦ-ﾟ]")
+    styles: set[str] = set()
+    spaces = [doc.modelspace()] + [lo for lo in doc.layouts if lo.name != "Model"] + list(doc.blocks)
+    for space in spaces:
+        for e in space:
+            t = e.dxftype()
+            try:
+                if t == "TEXT" and cjk.search(e.dxf.text):
+                    styles.add(e.dxf.style)
+                elif t == "MTEXT" and cjk.search(e.plain_text()):
+                    styles.add(e.dxf.style)
+                elif t == "INSERT":
+                    for a in e.attribs:
+                        if cjk.search(a.dxf.text):
+                            styles.add(a.dxf.style)
+            except Exception:
+                continue
+    changed = []
+    for name in styles:
+        try:
+            st = doc.styles.get(name)
+            st.dxf.font = CJK_FONT_FILE
+            st.dxf.bigfont = ""
+            changed.append(name)
+        except Exception:
+            continue
+    return changed
+
+
 def render(dxf_path: Path, png_path: Path, window: tuple[float, float, float, float] | None = None,
            width_px: int = 4000) -> tuple[float, float, float, float]:
     """Render model space (or `window` of it) to PNG. Returns the window drawn."""
@@ -71,6 +129,7 @@ def render(dxf_path: Path, png_path: Path, window: tuple[float, float, float, fl
     from ezdxf.addons.drawing.config import Configuration, ColorPolicy, BackgroundPolicy
 
     doc, _ = recover.readfile(str(dxf_path))
+    _point_cjk_styles_at_cjk_font(doc)
     msp = doc.modelspace()
     cfg = Configuration(color_policy=ColorPolicy.BLACK, background_policy=BackgroundPolicy.WHITE)
     dpi = 200

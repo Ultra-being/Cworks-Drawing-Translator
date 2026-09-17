@@ -50,7 +50,7 @@ def _users() -> dict[str, str]:
 class BasicAuth(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         users = _users()
-        if not users or request.url.path == "/healthz":
+        if not users or request.url.path in ("/healthz", "/api/debug/fonts"):
             return await call_next(request)
         header = request.headers.get("authorization", "")
         ok = False
@@ -67,6 +67,12 @@ class BasicAuth(BaseHTTPMiddleware):
 
 
 app.add_middleware(BasicAuth)
+
+
+@app.get("/api/debug/fonts")
+def debug_fonts():
+    """Open diagnostics: which fonts the preview renderer resolves (no user data)."""
+    return preview.cjk_font_status()
 
 
 @app.get("/healthz")

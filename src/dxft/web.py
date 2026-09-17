@@ -24,6 +24,55 @@ from . import preview
 STATIC = Path(__file__).resolve().parent / "static"
 app = FastAPI(title="Cworks Drawing Translator")
 
+
+# ───────────────────────────── login ─────────────────────────────
+# DXFT_USERS="allan:secret,staff:other" turns on HTTP Basic auth for every
+# request (the browser shows a login box). Unset = open, for local use.
+
+import base64
+import hmac
+import os
+
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+
+
+def _users() -> dict[str, str]:
+    raw = os.environ.get("DXFT_USERS", "").strip()
+    out = {}
+    for pair in raw.split(","):
+        if ":" in pair:
+            u, p = pair.split(":", 1)
+            out[u.strip()] = p.strip()
+    return out
+
+
+class BasicAuth(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        users = _users()
+        if not users or request.url.path == "/healthz":
+            return await call_next(request)
+        header = request.headers.get("authorization", "")
+        ok = False
+        if header.lower().startswith("basic "):
+            try:
+                u, p = base64.b64decode(header[6:]).decode("utf-8").split(":", 1)
+                ok = u in users and hmac.compare_digest(users[u], p)
+            except Exception:
+                ok = False
+        if not ok:
+            return Response("Cworks Drawing Translator: sign in", status_code=401,
+                            headers={"WWW-Authenticate": 'Basic realm="Cworks Drawing Translator"'})
+        return await call_next(request)
+
+
+app.add_middleware(BasicAuth)
+
+
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
+
 _running: dict[str, dict] = {}   # job id -> {"step": ..., "error": ...}
 _lock = threading.Lock()
 ROOT = JOBS

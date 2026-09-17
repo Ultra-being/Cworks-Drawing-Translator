@@ -1,0 +1,19 @@
+# Render blueprint: one always-on web service with a persistent disk for jobs.
+services:
+  - type: web
+    name: cworks-drawing-translator
+    runtime: docker
+    plan: starter
+    region: singapore
+    healthCheckPath: /healthz
+    disk:
+      name: jobs
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false          # set in the dashboard, never in the repo
+      - key: DXFT_USERS
+        sync: false          # "name:password,name2:password2"
+      - key: DXFT_MODEL
+        value: claude-opus-5

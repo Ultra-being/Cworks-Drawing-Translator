@@ -1,0 +1,6 @@
+.venv
+jobs
+.git
+__pycache__
+*.pyc
+*.png

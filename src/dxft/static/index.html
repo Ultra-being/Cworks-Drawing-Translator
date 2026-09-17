@@ -214,8 +214,8 @@ function renderHeader() {
       <button class="primary" ${busy||!pr?'disabled':''} onclick="act('translate')">${tr?'Re-translate':'Translate'}</button>
       <button ${busy||!tr?'disabled':''} onclick="act('approve-all')">Approve all clean</button>
       <button class="primary" ${busy||!tr?'disabled':''} onclick="act('patch')">${pa?'Re-patch':'Patch & verify'}</button>
-      <a ${pa?'':'style="pointer-events:none;opacity:.45"'} href="/api/jobs/${current.id}/download/output"><button>Download ${(current.fmt||'dxf').toUpperCase()}</button></a>
-      <a ${pa?'':'style="pointer-events:none;opacity:.45"'} href="/api/jobs/${current.id}/download/report.md"><button>Report</button></a>
+      <button ${pa?'':'disabled'} onclick="saveAs('output')">Download ${(current.fmt||'dxf').toUpperCase()}</button>
+      <button ${pa?'':'disabled'} onclick="saveAs('report.md')">Report</button>
       <button ${busy||!pa?'disabled':''} onclick="act('remember')" title="Reuse these approved translations on later sheets">Store in memory</button>
       <span style="flex:1"></span>
       <button ${busy?'disabled':''} onclick="del()">Delete</button>
@@ -228,6 +228,19 @@ async function act(what) {
     current = await api(`/api/jobs/${current.id}/${what}`, {method:'POST'});
     render(); loadJobs(); schedulePoll();
   } catch (e) { alert(e.message) }
+}
+async function saveAs(name) {
+  // Chrome/Edge: a proper "Save as" dialog so the user chooses the folder. Others: normal download.
+  const url = `/api/jobs/${current.id}/download/${name}`;
+  const stem = current.name.replace(/\.[^.]+$/, '');
+  const filename = name === 'output' ? `${stem}_${current.target.toUpperCase()}.${current.fmt||'dxf'}` : `${stem}_report.md`;
+  if (!window.showSaveFilePicker) { const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); return; }
+  try {
+    const ext = '.' + filename.split('.').pop();
+    const handle = await window.showSaveFilePicker({ suggestedName: filename, types: [{ description: ext.slice(1).toUpperCase() + ' file', accept: { 'application/octet-stream': [ext] } }] });
+    const r = await fetch(url); if (!r.ok) throw new Error(await r.text());
+    const w = await handle.createWritable(); await w.write(await r.blob()); await w.close();
+  } catch (e) { if (e.name !== 'AbortError') alert(e.message); }
 }
 async function moveJob() {
   const client = prompt('Client folder:', current.client || 'Unfiled'); if (client === null) return;

@@ -123,7 +123,7 @@ const api = async (url, opt={}) => {
   if (!r.ok) { let t = await r.text(); try { t = JSON.parse(t).detail || t } catch(e){}; throw new Error(t) }
   return r.headers.get('content-type')?.includes('json') ? r.json() : r;
 };
-let jobs = [], current = null, rows = [], tab = 'review', filter = 'all', search = '', poll = null, which = 'after', windowStack = [], page = 1, sheet = 0, sheetList = [], previewVersion = 2;
+let jobs = [], current = null, rows = [], tab = 'review', filter = 'all', search = '', poll = null, which = 'after', windowStack = [], page = 1, sheet = 0, sheetList = [], previewVersion = 3;
 
 const openFolders = new Set(JSON.parse(localStorage.getItem('dxft.open') || 'null') || ['*first*']);
 function toggleFolder(key) { openFolders.has(key) ? openFolders.delete(key) : openFolders.add(key); localStorage.setItem('dxft.open', JSON.stringify([...openFolders])); loadJobs(); }

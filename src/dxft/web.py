@@ -71,7 +71,7 @@ app.add_middleware(BasicAuth)
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True}
+    return {"ok": True, "version": os.environ.get("RENDER_GIT_COMMIT", "local")[:7]}
 
 _running: dict[str, dict] = {}   # job id -> {"step": ..., "error": ...}
 _lock = threading.Lock()

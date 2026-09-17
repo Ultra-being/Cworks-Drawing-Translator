@@ -56,7 +56,17 @@ class Memory:
 
     def __init__(self, root: Path, source: str, target: str):
         self.path = root / "_memory" / f"{source}-{target}.json"
-        self.data: dict[str, str] = _r(self.path) if self.path.exists() else {}
+        # seed shipped with the code (workspaces/memory), then what this server learned on top
+        import os
+        seed = Path(os.environ.get("DXFT_WORKSPACES", Path(__file__).resolve().parents[2] / "workspaces")) / "memory" / f"{source}-{target}.json"
+        self.data: dict[str, str] = {}
+        if seed.exists():
+            try:
+                self.data.update(_r(seed))
+            except Exception:
+                pass
+        if self.path.exists():
+            self.data.update(_r(self.path))
 
     def get(self, source_text: str) -> str | None:
         return self.data.get(source_text)

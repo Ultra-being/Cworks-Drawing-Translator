@@ -28,9 +28,40 @@ def text_extent(inventory_path: Path, pad: float = 0.04) -> tuple[float, float, 
     return x0 - w * pad, y0 - h * pad, x1 + w * pad * 2, y1 + h * pad * 2
 
 
+_CJK_READY = False
+
+
+def ensure_cjk_fallback() -> None:
+    """Make sure ezdxf's fallback font can draw Japanese/Chinese: on Linux the
+    default is DejaVu (no CJK), so write the CJK font bundled with PyMuPDF to
+    the cache folder, register it, and use it as the fallback."""
+    global _CJK_READY
+    if _CJK_READY:
+        return
+    _CJK_READY = True
+    try:
+        import os
+        import pymupdf
+        from ezdxf.fonts import fonts
+        fm = fonts.font_manager
+        current = fm.fallback_font_name()
+        if "unicode" in current.lower() or "cjk" in current.lower() or "droid" in current.lower():
+            return
+        folder = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "dxft-fonts"
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / "DroidSansFallback.ttf"
+        if not target.exists():
+            target.write_bytes(pymupdf.Font("japan").buffer)
+        fm.scan_folder(folder)
+        fm._fallback_font_name = target.name
+    except Exception:
+        pass
+
+
 def render(dxf_path: Path, png_path: Path, window: tuple[float, float, float, float] | None = None,
            width_px: int = 4000) -> tuple[float, float, float, float]:
     """Render model space (or `window` of it) to PNG. Returns the window drawn."""
+    ensure_cjk_fallback()
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt

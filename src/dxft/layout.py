@@ -244,40 +244,74 @@ def _ends_paragraph(line: str, lang: str) -> bool:
     return bool((JA_TERMINATOR if lang == "ja" else RU_TERMINATOR).search(line))
 
 
-def paragraphs(items: list[TextItem], candidates: set[str]) -> list[Paragraph]:
-    """Group stacked single-line TEXT entities that read as one paragraph.
+MTEXT_RICH = re.compile(r"\\(?![Ww])[A-Za-z~]")   # any MTEXT code other than the width factor \W
+INDENT = 2.5     # how far right of a paragraph's first line a continuation may start, in text heights
+FULL_LINE = 0.5  # how much of its column a line must fill to count as having run out of room
 
-    Lines join when they are in the same space/layer/style/height, left-aligned
-    at the same x, spaced like consecutive lines, and the text says the previous
-    line did not finish (no terminator; next line is not a bullet). A Japanese
-    group is only accepted when its last line does terminate — a title block
-    of unrelated lines never ends with 。 and stays as separate lines.
+
+def _line_candidate(it: TextItem) -> bool:
+    r"""A line that may be folded into a paragraph: flat, left-aligned, one
+    line long. Unboxed MTEXT counts — it is drawn on a single line exactly
+    like TEXT — unless it carries formatting beyond the width factor \W,
+    which re-wrapping the paragraph would have to throw away."""
+    if not _flat(it) or it.halign != 0:
+        return False
+    if it.kind == "MTEXT":
+        return not MTEXT_RICH.search(it.raw)
+    return it.kind in ("TEXT", "PDF")
+
+
+def paragraphs(items: list[TextItem], candidates: set[str]) -> list[Paragraph]:
+    """Group stacked single-line entities that read as one paragraph.
+
+    Lines join when they are in the same space/layer/style at much the same
+    height, spaced like consecutive lines, starting at the first line's left
+    edge or hanging-indented from it, filling their column so the break was
+    forced rather than chosen, and reading as unfinished (no terminator; the
+    next line is not a bullet). A Japanese group is only accepted when its
+    last line does terminate — a title block of unrelated lines never ends
+    with 。 and stays as separate lines.
     """
-    cand = [it for it in items if it.handle in candidates and _flat(it) and it.kind in ("TEXT", "PDF") and it.halign == 0]
+    cand = [it for it in items if it.handle in candidates and _line_candidate(it)]
     keyed: dict[tuple, list[TextItem]] = {}
     for it in cand:
-        keyed.setdefault((it.where, it.layer, it.style, round(it.height, 3)), []).append(it)
+        keyed.setdefault((it.where, it.layer, it.style), []).append(it)
 
     out: list[Paragraph] = []
     for key, group in keyed.items():
-        h = key[3]
-        group.sort(key=lambda t: (round(t.x / (0.5 * h)), -t.y))
-        # columns: consecutive items whose x agrees within 0.5 h
+        # One typical height for the block, to judge line spacing and indents
+        # by. Lines only join a paragraph whose height they nearly share, so a
+        # heading among the notes is never folded into one.
+        heights = sorted(t.height for t in group)
+        h = heights[len(heights) // 2]
+        group.sort(key=lambda t: (t.x, -t.y))
+        # columns: a wrapped line that the drafter indented is still the same
+        # column of text; the next column of the sheet is much further right.
         col: list[TextItem] = []
         cols: list[list[TextItem]] = []
         for it in group:
-            if col and abs(it.x - col[0].x) > 0.5 * h:
+            if col and it.x - col[0].x > INDENT * h:
                 cols.append(col); col = []
             col.append(it)
         if col:
             cols.append(col)
         for col in cols:
             col.sort(key=lambda t: -t.y)
+            # A line only has a continuation if it ran out of room. The lines
+            # of a title block are short because the drafter ended them there,
+            # so a line that stops well before the column's edge ends its
+            # paragraph whatever the words do.
+            left = min(t.x for t in col)
+            width = max(t.x + rendered_width(t) for t in col) - left
             run: list[TextItem] = [col[0]]
             for it in col[1:]:
                 prev = run[-1]
                 dy = prev.y - it.y
-                if 0.8 * h <= dy <= 2.6 * h and _continues(prev.plain, it.plain, it.lang):
+                indent = it.x - run[0].x
+                same_size = abs(it.height - run[0].height) <= 0.1 * run[0].height
+                full = width <= 0 or (prev.x + rendered_width(prev) - left) >= FULL_LINE * width
+                if (0.8 * h <= dy <= 2.6 * h and -0.5 * h <= indent <= INDENT * h
+                        and same_size and full and _continues(prev.plain, it.plain, it.lang)):
                     run.append(it)
                 else:
                     out.extend(_close(run)); run = [it]
@@ -333,6 +367,33 @@ def _greedy(text: str, cap_em: float | list[float], cjk: bool) -> list[str]:
                     cur = cand
             lines.append(cur)
     return [l for l in lines if l != ""] or [""]
+
+
+def _caps_list(cap, n: int) -> list[float]:
+    return list(cap) if isinstance(cap, list) else [cap] * n
+
+
+def wrap_best(text: str, per_line, per_line_max, max_lines: int, cjk: bool) -> tuple[list[str], float, bool]:
+    """Wrap inside the column the writer laid out; reach into the free space
+    beside it only to save words that would otherwise fall off the end.
+
+    Narrowing to stay in the column is not a reason to leave it — that is what
+    the column is for, and text too tight to read is dealt with by asking for
+    shorter wording. Only losing words is worse than growing. When the column
+    really cannot hold the sentence, take just as much of the space beside it
+    as the sentence needs, spread over the lines the paragraph already has, so
+    no line of it is left empty.
+    """
+    lines, wf, over = wrap_to(text, per_line, max_lines, cjk)
+    if not over or not per_line_max or per_line_max == per_line:
+        return lines, wf, over
+    need = em_width(text) / max(max_lines, 1) * 1.05
+    widened = [min(m, max(c, need)) for c, m
+               in zip(_caps_list(per_line, max_lines), _caps_list(per_line_max, max_lines))]
+    alt_lines, alt_wf, alt_over = wrap_to(text, widened, max_lines, cjk)
+    if (alt_over, -alt_wf) < (over, -wf):
+        return alt_lines, alt_wf, alt_over
+    return lines, wf, over
 
 
 def wrap_to(text: str, cap_em: float | list[float], max_lines: int, cjk: bool) -> tuple[list[str], float, bool]:

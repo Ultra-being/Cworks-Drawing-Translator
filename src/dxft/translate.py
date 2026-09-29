@@ -232,7 +232,9 @@ def shorten(translator, segments: list, current: dict, budgets: dict, source: st
         user = (
             f"Source language: {LANG_NAME.get(source, source)}. Target language: {LANG_NAME.get(target, target)}.\n"
             "These translations are too long for the room on the drawing. Rewrite each within max_chars: "
-            "drop articles and filler, use the standard abbreviations from the rules, keep every number, code and ⟦n⟧ marker. "
+            "drop articles and filler and choose shorter words first. Abbreviate only when rewording is not "
+            "enough, and then only with the standard abbreviations from the rules -- a sentence a reader has "
+            "to parse is worth more than two saved characters. Keep every number, code and ⟦n⟧ marker. "
             "Return ONLY a JSON object mapping id to the shorter text.\n\n" + json.dumps(payload, ensure_ascii=False)
         )
         try:

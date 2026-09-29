@@ -253,9 +253,9 @@ def apply(doc, geo: dict[str, dict], segments, approved: dict[str, str], target:
           width_factors: dict[str, float] | None = None):
     """Redact every patched line's box, then draw the translation at the
     same baseline. Paragraph groups are re-wrapped over their lines (see
-    layout.wrap_to). Returns a PatchResult like patch.apply."""
+    layout.wrap_best). Returns a PatchResult like patch.apply."""
     import pymupdf
-    from .layout import wrap_to, _greedy, em_width
+    from .layout import wrap_best, _greedy, em_width
     from .patch import PatchResult
     from .prepare import unmark_codes, latinize
 
@@ -280,7 +280,9 @@ def apply(doc, geo: dict[str, dict], segments, approved: dict[str, str], target:
                 if len(lines) > len(group):
                     lines, overflow = lines[:len(group) - 1] + [(" " if not cjk else "").join(lines[len(group) - 1:])], True
             else:
-                lines, wf, overflow = wrap_to(text, per_line, len(group), cjk)
+                per_line_max = (seg.line_caps_max[gi]
+                                if gi < len(seg.line_caps_max) and seg.line_caps_max[gi] else per_line)
+                lines, wf, overflow = wrap_best(text, per_line, per_line_max, len(group), cjk)
             if overflow and seg.id not in result.overflow:
                 result.overflow.append(seg.id)
             for i, handle in enumerate(group):

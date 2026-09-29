@@ -65,6 +65,8 @@ class Segment:
     groups: list[list[str]] = field(default_factory=list)  # each instance: its handles, top line first
     caps: list[float] = field(default_factory=list)        # per instance: room per line, in ems (0 = unknown)
     line_caps: list[list[float]] = field(default_factory=list)  # per instance: room of each line (indents make them differ)
+    caps_max: list[float] = field(default_factory=list)         # the same, out to whatever stands to the right
+    line_caps_max: list[list[float]] = field(default_factory=list)
     lines: int = 1         # lines available per instance (paragraphs > 1)
     budget_chars: int = 0  # length hint for the model, 0 = no constraint known
 
@@ -199,8 +201,10 @@ def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list
     avail = layout.available_widths(items, walls or {})
     item_by_handle = {it.handle: it for it in items}
 
-    # Paragraph groups cover the flat TEXT items; everything else is its own group.
-    paras = layout.paragraphs(items, translatable)
+    # Only real paragraphs are grouped. A line standing on its own takes the
+    # ordinary path below, where MTEXT has its format codes marked before the
+    # model ever sees them.
+    paras = [p for p in layout.paragraphs(items, translatable) if len(p.items) > 1]
     grouped = {h for p in paras for h in p.handles}
     units: list[tuple[list[TextItem], str, list[str]]] = []  # (items, marked source, codes)
     for it in items:
@@ -212,10 +216,7 @@ def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list
             marked, codes = it.raw, []
         units.append(([it], marked, codes))
     for p in paras:
-        if len(p.items) == 1:
-            units.append((p.items, p.items[0].raw, []))
-        else:
-            units.append((p.items, layout.join_lines([t.plain for t in p.items], p.items[0].lang), []))
+        units.append((p.items, layout.join_lines([t.plain for t in p.items], p.items[0].lang), []))
     # keep drawing order stable so ids are reproducible
     order = {it.handle: i for i, it in enumerate(items)}
     units.sort(key=lambda u: order[u[0][0].handle])
@@ -231,9 +232,11 @@ def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list
             )
             by_source[marked] = seg
         seg.groups.append([t.handle for t in group])
-        cap, per_line = _cap_em(group, avail)
+        cap, per_line, cap_max, per_line_max = _cap_em(group, avail)
         seg.caps.append(cap)
         seg.line_caps.append(per_line)
+        seg.caps_max.append(cap_max)
+        seg.line_caps_max.append(per_line_max)
         seg.lines = max(seg.lines, len(group))
         for t in group:
             seg.handles.append(t.handle)
@@ -252,14 +255,22 @@ def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list
     return list(by_source.values()), handle_map, skipped
 
 
-def _cap_em(group: list[TextItem], avail: dict[str, float]) -> tuple[float, list[float]]:
-    """Room for one instance, in ems of its own height: (one figure for the
-    group, one per line). 0 = unknown. For a paragraph the right edge is
-    shared: the longest line's end, or the nearest neighbour found on any
-    line; each line's room runs from its own start to that edge."""
+def _cap_em(group: list[TextItem], avail: dict[str, float]) -> tuple[float, list[float], float, list[float]]:
+    """Room for one instance, in ems of its own height: the room to aim for
+    (one figure for the group, one per line), then the most there is. 0 =
+    unknown. For a paragraph the right edge is shared: each line's room runs
+    from its own start to that edge.
+
+    A paragraph already has a column — the right edge the writer set — and
+    English that runs long belongs on the next line down, the way any
+    paragraph is set, not stretched into the gutter towards the column beside
+    it. So the column is what to aim for; the free space out to whatever
+    stands on the right is held in reserve for the sentences that will not go
+    in (see layout.wrap_best).
+    """
     first = group[0]
     if not fits_like_a_line(first) or first.height <= 0:
-        return 0.0, []
+        return 0.0, [], 0.0, []
     scale = first.height * (first.width_factor or 1.0)
     line_ems = [layout.em_width(t.plain) for t in group]
     if len(group) == 1:
@@ -267,12 +278,11 @@ def _cap_em(group: list[TextItem], avail: dict[str, float]) -> tuple[float, list
             cap = round(max(avail[first.handle] * SAFETY / scale, line_ems[0]), 2)
         else:
             cap = round(line_ems[0] * (2.4 if first.lang in ("ja", "zh") else 1.4), 2)
-        return cap, [cap]
-    right = max(t.x + layout.rendered_width(t) for t in group)
+        return cap, [cap], cap, [cap]
+    column = max(t.x + layout.rendered_width(t) for t in group)
     known = [t.x + avail[t.handle] * SAFETY for t in group if t.handle in avail]
-    if known:
-        right = max(right, min(known))
-    else:
-        right += (right - min(t.x for t in group)) * 0.2   # nothing found nearby: a little growth
+    reserve = min(known) if known else column + (column - min(t.x for t in group)) * 0.2
+    right = min(column, reserve)
     per_line = [round(max((right - t.x) / scale, e), 2) for t, e in zip(group, line_ems)]
-    return round(max(per_line), 2), per_line
+    per_line_max = [round(max((max(right, reserve) - t.x) / scale, e), 2) for t, e in zip(group, line_ems)]
+    return round(max(per_line), 2), per_line, round(max(per_line_max), 2), per_line_max

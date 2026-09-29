@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .layout import em_width, fits_like_a_line, wrap_to, WF_FLOOR
+from .layout import em_width, fits_like_a_line, wrap_best, WF_FLOOR
 from .prepare import MARK_RE, Segment
 from .translate import Translation
 
@@ -51,7 +51,8 @@ def assess(segments: list[Segment], translations: list[Translation], target_lang
         wf_min, used_max, overflow = 1.0, 1, False
         for gi, (group, cap) in enumerate(zip(s.groups, s.caps)):
             per_line = s.line_caps[gi] if gi < len(s.line_caps) and s.line_caps[gi] else cap
-            lines, wf, ov = wrap_to(plain_t, per_line, len(group), cjk)
+            per_line_max = s.line_caps_max[gi] if gi < len(s.line_caps_max) and s.line_caps_max[gi] else per_line
+            lines, wf, ov = wrap_best(plain_t, per_line, per_line_max, len(group), cjk)
             wf_min = min(wf_min, wf)
             used_max = max(used_max, len(lines))
             overflow = overflow or ov

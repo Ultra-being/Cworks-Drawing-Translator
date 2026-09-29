@@ -21,7 +21,7 @@ import ezdxf
 from ezdxf.document import Drawing
 
 from .inventory import TextItem, load, set_table_cell
-from .layout import wrap_to, _greedy, em_width
+from .layout import wrap_best, _greedy, em_width
 from .translate import TABLE_GAP, _repad
 from .prepare import MARK_RE, Segment, unmark_codes, latinize
 
@@ -82,7 +82,7 @@ def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved
     """`approved` maps segment id -> final text (with ⟦n⟧ markers for MTEXT).
     `width_factors` maps segment id -> a reviewer's explicit width factor; when
     absent, TEXT/ATTRIB is re-wrapped over its lines and narrowed only as much
-    as needed (layout.wrap_to)."""
+    as needed (layout.wrap_best)."""
     result = PatchResult()
     item_by_handle = {it.handle: it for it in items}
     width_factors = width_factors or {}
@@ -133,7 +133,9 @@ def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved
                     if len(lines) > len(group):
                         lines, overflow = lines[:len(group) - 1] + [(" " if not cjk else "").join(lines[len(group) - 1:])], True
                 else:
-                    lines, wf, overflow = wrap_to(measure, per_line, len(group), cjk)
+                    per_line_max = (seg.line_caps_max[gi]
+                                    if gi < len(seg.line_caps_max) and seg.line_caps_max[gi] else per_line)
+                    lines, wf, overflow = wrap_best(measure, per_line, per_line_max, len(group), cjk)
                 if overflow and seg.id not in result.overflow:
                     result.overflow.append(seg.id)
                 if abs(wf - 1.0) > 0.01 and len(lines) == 1:
@@ -144,8 +146,11 @@ def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved
                         result.skipped.append(handle)
                         continue
                     if e.dxftype() == "MTEXT":
-                        # One line, codes intact; narrowing rides on an inline \W.
-                        e.text = f"\\W{wf:.2f};{text}" if abs(wf - 1.0) > 0.01 else text
+                        # Narrowing rides on an inline \W. An MTEXT standing on
+                        # its own keeps the code-restored string; one that is a
+                        # line of a paragraph takes only its own line.
+                        own = text if len(group) == 1 else (lines[i] if i < len(lines) else "")
+                        e.text = f"\\W{wf:.2f};{own}" if abs(wf - 1.0) > 0.01 else own
                         if abs(wf - 1.0) > 0.01:
                             result.width_factors += 1
                         ja_style(item)

@@ -207,9 +207,11 @@ class Job:
             self._meta = m
             self.save_meta()
         fits = fitmod.assess(segments, results, meta["target"])
-        # Strings that still overflow after wrapping and narrowing: ask for
-        # tighter wording within the exact budget, then measure again.
-        over = {f.id for f in fits if f.flag == "overflow"}
+        # Strings that only fit by being squeezed -- overflowing the space, or
+        # condensed well below normal letter widths -- get a second attempt:
+        # ask for tighter wording within the exact budget, then measure again.
+        # Shorter English reads better on a drawing than narrow English.
+        over = {f.id for f in fits if f.flag in ("overflow", "tight")}
         shortened = 0
         if over and mode != "mock":
             seg_by_id = {s.id: s for s in segments}

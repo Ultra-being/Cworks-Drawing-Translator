@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import shutil
 import threading
+import time
 import traceback
 from pathlib import Path
 
@@ -99,6 +100,9 @@ def _state(job_id: str) -> dict:
     run = _running.get(job_id, {})
     meta["running"] = run.get("step")
     meta["error"] = run.get("error")
+    # How long the current step has been going, so the page can say "4 min" and
+    # stop looking identical to a step that died.
+    meta["runningFor"] = int(time.time() - run["since"]) if run.get("step") and run.get("since") else None
     return meta
 
 
@@ -106,7 +110,7 @@ def _background(job_id: str, step: str, fn) -> None:
     with _lock:
         if _running.get(job_id, {}).get("step"):
             raise HTTPException(409, f"job is busy: {_running[job_id]['step']}")
-        _running[job_id] = {"step": step, "error": None}
+        _running[job_id] = {"step": step, "error": None, "since": time.time()}
 
     def run():
         try:
@@ -136,7 +140,9 @@ def list_jobs():
             m = json.loads(d.read_text(encoding="utf-8"))
         except Exception:
             continue
-        m["running"] = _running.get(m["id"], {}).get("step")
+        r = _running.get(m["id"], {})
+        m["running"] = r.get("step")
+        m["runningFor"] = int(time.time() - r["since"]) if r.get("step") and r.get("since") else None
         out.append(m)
     return out
 
@@ -222,6 +228,20 @@ def delete_job(job_id: str):
     shutil.rmtree(job.dir)
     _running.pop(job_id, None)
     return {"ok": True}
+
+
+@app.post("/api/jobs/{job_id}/unstick")
+def unstick(job_id: str):
+    """Clear a step that is no longer running.
+
+    A container restart mid-stage (a deploy, an out-of-memory kill) leaves the
+    page polling a step nobody is working on. This drops that claim so the job
+    can be run again from wherever it got to; the finished stages are on disk
+    and are not touched.
+    """
+    _job(job_id)
+    was = _running.pop(job_id, {}).get("step")
+    return {"ok": True, "cleared": was}
 
 
 @app.delete("/api/folders")

@@ -126,6 +126,7 @@ const api = async (url, opt={}) => {
   if (!r.ok) { let t = await r.text(); try { t = JSON.parse(t).detail || t } catch(e){}; throw new Error(t) }
   return r.headers.get('content-type')?.includes('json') ? r.json() : r;
 };
+let tick = null;
 let jobs = [], current = null, rows = [], tab = 'review', filter = 'all', search = '', poll = null, which = 'after', windowStack = [], page = 1, sheet = 0, sheetList = [], previewVersion = 3;
 
 const openFolders = new Set(JSON.parse(localStorage.getItem('dxft.open') || 'null') || ['*first*']);
@@ -258,6 +259,12 @@ async function openJob(id) {
 }
 function schedulePoll() {
   clearTimeout(poll);
+  // The server reports elapsed seconds on each poll; tick locally in between so
+  // the number never sits still while work is happening.
+  clearInterval(tick);
+  if (current?.running) tick = setInterval(() => {
+    if (current?.runningFor != null) { current.runningFor++; renderHeader(); }
+  }, 1000);
   if (current && current.running) poll = setTimeout(async () => {
     const before = current.running;
     current = await api('/api/jobs/' + current.id);
@@ -277,7 +284,14 @@ function render() {
 }
 function renderHeader() {
   const s = current.stages || {}, run = current.running;
-  const st = (name, label, info) => `<div class="stage ${run===name?'run':s[name]?'done':''}">${label}${info?' · '+info:''}</div>`;
+  // A running stage shows how long it has been going. "Translate… 3m 20s" is a
+  // working app; a pulsing dot with no number looks broken after about a minute.
+  const elapsed = (secs) => secs == null ? '' : secs < 60 ? `${secs}s` : `${Math.floor(secs/60)}m ${secs%60}s`;
+  const st = (name, label, info) => {
+    const running = run === name;
+    const text = running ? (elapsed(current.runningFor) || 'working') : info;
+    return `<div class="stage ${running?'run':s[name]?'done':''}">${label}${text?' · '+text:''}</div>`;
+  };
   const inv = s.inventory, pr = s.prepare, tr = s.translate, pa = s.patch;
   const busy = !!run;
   $('#head').innerHTML = `

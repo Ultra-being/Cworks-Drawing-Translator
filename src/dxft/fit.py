@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .layout import em_width, wrap_to, WF_FLOOR
+from .layout import em_width, fits_like_a_line, wrap_to, WF_FLOOR
 from .prepare import MARK_RE, Segment
 from .translate import Translation
 
@@ -41,8 +41,10 @@ def assess(segments: list[Segment], translations: list[Translation], target_lang
         plain_t = MARK_RE.sub("", t.target)
         se, te = em_width(MARK_RE.sub("", s.source)), em_width(plain_t)
         ratio = te / se if se > 0 else 1.0
-        kind = s.kinds[0] if s.kinds else "TEXT"
-        if kind not in ("TEXT", "ATTRIB", "PDF") or not s.caps:
+        # A segment is fitted when prepare found room for it. Boxed MTEXT wraps
+        # itself and gets no caps, so it falls through to the growth check.
+        fitted = any(c > 0 for c in s.caps)
+        if not fitted:
             flag = "long" if ratio > 1.6 else ""
             out.append(Fit(s.id, round(se, 1), round(te, 1), round(ratio, 2), flag, 1.0))
             continue

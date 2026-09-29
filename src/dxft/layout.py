@@ -99,9 +99,22 @@ def _same_row(a: TextItem, b: TextItem) -> bool:
     return abs(a.y - b.y) < 0.7 * max(a.height, b.height, 1e-9)
 
 
+def fits_like_a_line(it: TextItem) -> bool:
+    """True when the string occupies one line that grows to the right.
+
+    MTEXT usually wraps inside its own box, so it grows downward and needs no
+    width measuring. But drafters routinely place MTEXT with no box at all
+    (width 0), and then it behaves exactly like a TEXT entity: one line, no
+    wrapping, straight into whatever is beside it. Those must be measured.
+    """
+    if it.kind in ("TEXT", "ATTRIB", "PDF"):
+        return True
+    return it.kind == "MTEXT" and not it.box_width
+
+
 def _flat(it: TextItem) -> bool:
     r = it.rotation % 360.0
-    return (r < 1.0 or r > 359.0) and not it.vertical and it.kind in ("TEXT", "ATTRIB", "PDF") and it.height > 0
+    return (r < 1.0 or r > 359.0) and not it.vertical and fits_like_a_line(it) and it.height > 0
 
 
 def available_widths(items: list[TextItem], walls: dict[str, list[list[float]]]) -> dict[str, float]:
@@ -125,7 +138,11 @@ def available_widths(items: list[TextItem], walls: dict[str, list[list[float]]])
                 continue
             h = it.height
             src_w = max(rendered_width(it), h)
-            reach = src_w * 4 + 2 * h
+            # How far to look for whatever limits this string. It must not be
+            # scaled to the source: a four-character Japanese label whose body
+            # column sits sixty character-heights to the right would never see
+            # it, conclude the space was open, and grow the English through it.
+            reach = max(src_w * 6, 60 * h)
             left_edge = it.x
             if it.halign in (1, 4):
                 left_edge = it.ax - src_w / 2

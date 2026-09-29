@@ -21,6 +21,7 @@ import os
 
 from .inventory import TextItem, detect_lang
 from . import layout
+from .layout import fits_like_a_line
 
 # Fraction of the measured room actually used: viewers substitute fonts, so
 # text that runs to the edge in one may cross it in another.
@@ -257,7 +258,7 @@ def _cap_em(group: list[TextItem], avail: dict[str, float]) -> tuple[float, list
     shared: the longest line's end, or the nearest neighbour found on any
     line; each line's room runs from its own start to that edge."""
     first = group[0]
-    if first.kind not in ("TEXT", "ATTRIB", "PDF") or first.height <= 0:
+    if not fits_like_a_line(first) or first.height <= 0:
         return 0.0, []
     scale = first.height * (first.width_factor or 1.0)
     line_ems = [layout.em_width(t.plain) for t in group]

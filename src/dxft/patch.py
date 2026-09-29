@@ -23,7 +23,7 @@ from ezdxf.document import Drawing
 from .inventory import TextItem, load, set_table_cell
 from .layout import wrap_to, _greedy, em_width
 from .translate import TABLE_GAP, _repad
-from .prepare import Segment, unmark_codes, latinize
+from .prepare import MARK_RE, Segment, unmark_codes, latinize
 
 JA_FONT = ("txt", "extfont2")  # SHX shape font + Japanese bigfont
 # English output is set to a TrueType font every viewer has, and widths are
@@ -113,7 +113,15 @@ def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved
             text = latinize(text)
         kind = seg.kinds[0] if seg.kinds else ""
 
-        if kind in ("TEXT", "ATTRIB") and seg.groups:
+        # Unboxed MTEXT is one line that grows to the right, exactly like TEXT,
+        # so it is fitted the same way. It is narrowed with an inline \W code
+        # rather than a width attribute, which is how MTEXT carries the same idea.
+        line_like = bool(seg.groups) and any(c > 0 for c in seg.caps)
+        # Fit on what will be *visible*. MTEXT carries inline formatting codes
+        # (\fArial|b0|i0; and the like); measuring those as printable characters
+        # would make every formatted string look far too wide to fit.
+        measure = MARK_RE.sub("", final) if seg.codes else text
+        if kind in ("TEXT", "ATTRIB", "MTEXT") and line_like:
             if seg.lines == 1:
                 text = _repad(seg.source, text)   # table rows keep their value column
             for gi, (group, cap) in enumerate(zip(seg.groups, seg.caps)):
@@ -121,19 +129,27 @@ def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved
                 override = width_factors.get(seg.id)
                 if override and abs(override - 1.0) > 0.01:
                     scaled = [c / override for c in per_line] if isinstance(per_line, list) else (per_line / override if per_line > 0 else 1e9)
-                    lines, wf, overflow = _greedy(text, scaled, cjk), override, False
+                    lines, wf, overflow = _greedy(measure, scaled, cjk), override, False
                     if len(lines) > len(group):
                         lines, overflow = lines[:len(group) - 1] + [(" " if not cjk else "").join(lines[len(group) - 1:])], True
                 else:
-                    lines, wf, overflow = wrap_to(text, per_line, len(group), cjk)
+                    lines, wf, overflow = wrap_to(measure, per_line, len(group), cjk)
                 if overflow and seg.id not in result.overflow:
                     result.overflow.append(seg.id)
                 if abs(wf - 1.0) > 0.01 and len(lines) == 1:
                     lines = [_repad_narrowed(lines[0], wf)]
                 for i, handle in enumerate(group):
                     e, item = entity(handle), item_by_handle.get(handle)
-                    if e is None or item is None or e.dxftype() not in ("TEXT", "ATTRIB"):
+                    if e is None or item is None or e.dxftype() not in ("TEXT", "ATTRIB", "MTEXT"):
                         result.skipped.append(handle)
+                        continue
+                    if e.dxftype() == "MTEXT":
+                        # One line, codes intact; narrowing rides on an inline \W.
+                        e.text = f"\\W{wf:.2f};{text}" if abs(wf - 1.0) > 0.01 else text
+                        if abs(wf - 1.0) > 0.01:
+                            result.width_factors += 1
+                        ja_style(item)
+                        result.patched += 1
                         continue
                     e.dxf.text = lines[i] if i < len(lines) else ""
                     if abs(wf - 1.0) > 0.01:

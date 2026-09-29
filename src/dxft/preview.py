@@ -116,6 +116,32 @@ def _point_cjk_styles_at_cjk_font(doc) -> list[str]:
     return changed
 
 
+def _stop_phantom_wrapping(doc) -> int:
+    """Preview only: an MTEXT with reference width 0 never wraps — AutoCAD draws
+    it on one line however long it is. The drawing add-on disagrees: give it a
+    width code (\\W) and a space and it wraps anyway, inventing lines that are
+    not in the drawing. Since the attachment point is often bottom-left, those
+    invented lines climb upward into the heading above and the preview shows an
+    overlap that does not exist in the file.
+
+    Setting an explicit, generous width on the rendering copy stops it. The
+    document on disk is never touched.
+    """
+    fixed = 0
+    spaces = [doc.modelspace()] + [lo for lo in doc.layouts if lo.name != "Model"] + list(doc.blocks)
+    for space in spaces:
+        for e in space:
+            try:
+                if e.dxftype() != "MTEXT" or e.dxf.width:
+                    continue
+                chars = max(len(e.plain_text()), 1)
+                e.dxf.width = chars * float(e.dxf.char_height or 1.0) * 2.0
+                fixed += 1
+            except Exception:
+                continue
+    return fixed
+
+
 def render(dxf_path: Path, png_path: Path, window: tuple[float, float, float, float] | None = None,
            width_px: int = 4000) -> tuple[float, float, float, float]:
     """Render model space (or `window` of it) to PNG. Returns the window drawn."""
@@ -130,6 +156,7 @@ def render(dxf_path: Path, png_path: Path, window: tuple[float, float, float, fl
 
     doc, _ = recover.readfile(str(dxf_path))
     _point_cjk_styles_at_cjk_font(doc)
+    _stop_phantom_wrapping(doc)
     msp = doc.modelspace()
     cfg = Configuration(color_policy=ColorPolicy.BLACK, background_policy=BackgroundPolicy.WHITE)
     dpi = 200

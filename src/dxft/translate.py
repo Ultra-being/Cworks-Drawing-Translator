@@ -80,6 +80,7 @@ def markers_ok(source: str, target: str) -> bool:
 class ClaudeTranslator:
     def __init__(self, model: str = DEFAULT_MODEL):
         from anthropic import Anthropic  # imported lazily so mock mode needs no key
+        _load_env()   # here, not only in get_translator: every caller needs the key
         self.client = Anthropic()
         self.model = model
         self.usage = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
@@ -277,7 +278,6 @@ class MockTranslator:
 def get_translator(mode: str, model: str | None = None) -> Translator:
     if mode == "mock":
         return MockTranslator()
-    _load_env()
     return ClaudeTranslator(model or DEFAULT_MODEL)
 
 

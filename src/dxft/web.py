@@ -425,6 +425,121 @@ def _preview_pdf(job: Job, src: Path, which: str, page: int, x0, y0, x1, y1, wid
     return FileResponse(str(png), media_type="image/png", headers={"X-Window": json.dumps(drawn), "X-Pages": str(len(doc)), "Cache-Control": "no-store"})
 
 
+HELP_MODEL = os.environ.get("DXFT_HELP_MODEL", "claude-sonnet-5")
+
+
+def _diagnostics(job_id: str, with_text: bool = False) -> str:
+    """What is actually true about this job, in plain text: the stages and what
+    they found, anything that failed, and how the strings came out. No drawing
+    text unless it is asked for -- a fault report should not carry a client's
+    drawing around with it by default."""
+    job = _job(job_id)
+    m = job.meta
+    run = _running.get(job_id, {})
+    L = [f"app version: {os.environ.get('RENDER_GIT_COMMIT', 'local')[:7]}",
+         f"job: {job_id}  file: {m.get('name')}  format: {m.get('fmt')}",
+         f"languages: {m.get('source')} to {m.get('target')}",
+         f"filed under: {m.get('client') or 'Unfiled'} / {m.get('project') or 'General'}",
+         f"status: {m.get('status')}"]
+    if run.get("step"):
+        secs = int(time.time() - run["since"]) if run.get("since") else None
+        L.append(f"running now: {run['step']}" + (f" for {secs}s" if secs is not None else ""))
+    if run.get("error"):
+        L.append(f"ERROR: {run['error']}")
+    L.append("")
+    L.append("stages:")
+    for name in ("inventory", "prepare", "translate", "patch"):
+        st = (m.get("stages") or {}).get(name)
+        L.append(f"  {name}: " + (json.dumps({k: v for k, v in st.items() if k != 'usage'}, ensure_ascii=False)
+                                  if st else "not run"))
+    worst: list[dict] = []
+    fit = job.dir / "fit.json"
+    if fit.exists():
+        try:
+            rows = json.loads(fit.read_text(encoding="utf-8"))
+            by_flag: dict[str, int] = {}
+            for f in rows:
+                by_flag[f.get("flag") or "ok"] = by_flag.get(f.get("flag") or "ok", 0) + 1
+            L.append("")
+            L.append(f"fit: {len(rows)} strings, {json.dumps(by_flag)}")
+            worst = sorted((f for f in rows if f.get("flag") in ("overflow", "tight")),
+                           key=lambda f: f.get("suggested_width_factor", 1.0))[:8]
+            for f in worst:
+                L.append(f"  {f['id']} {f['flag']} width_factor={f.get('suggested_width_factor')} "
+                         f"lines={f.get('lines_used')}/{f.get('lines_available')} room_em={f.get('cap_em')}")
+        except Exception as ex:
+            L.append(f"fit.json unreadable: {ex!r}")
+    if with_text:
+        try:
+            read = lambda f: json.loads((job.dir / f).read_text(encoding="utf-8"))
+            segs = {s_["id"]: s_ for s_ in read("segments.json")["segments"]}
+            trs = {t["id"]: t["target"] for t in read("translations.json")["translations"]}
+            L.append("")
+            L.append("strings that did not fit (source -> target):")
+            for f in worst:
+                L.append(f"  {f['id']}: {segs.get(f['id'], {}).get('plain', '')!r} -> {trs.get(f['id'], '')!r}")
+        except Exception as ex:
+            L.append(f"strings unavailable: {ex!r}")
+    return "\n".join(L)
+
+
+@app.get("/api/jobs/{job_id}/diagnostics")
+def diagnostics(job_id: str, text: int = 0):
+    return {"text": _diagnostics(job_id, with_text=bool(text))}
+
+
+HELP_SYSTEM = """You are the help desk inside the Cworks Drawing Translator, a tool that
+translates the text of construction drawings (DXF and vector PDF) between Japanese, Russian
+and English without altering any geometry. You are talking to the person using it -- an
+engineer or a member of staff, not a programmer.
+
+Answer from the guide below and from the job's diagnostics. Be short and concrete: say what
+to click and what to expect. Use the job's actual numbers when they answer the question.
+
+What you must be straight about:
+- You cannot change the app or fix faults in it. If something is a fault in the tool rather
+  than a misunderstanding, say so plainly and tell them to use "Report a problem", which
+  packages these diagnostics for the developer.
+- A stage that is running is usually just slow, not stuck. Translating a large sheet takes
+  several minutes and drawing a preview of a big drawing takes a minute or two per sheet.
+  Use the elapsed time in the diagnostics before calling anything stuck.
+- Never invent a button, a setting or a number. If the diagnostics do not say, say you
+  cannot tell from here.
+- You do not see the drawing's text unless it appears in the diagnostics, so do not guess
+  at translation wording.
+
+THE GUIDE:
+"""
+
+
+@app.post("/api/jobs/{job_id}/help")
+def help_chat(job_id: str, body: dict):
+    """A question about this job, answered with the job's own diagnostics to hand."""
+    question = str(body.get("question") or "").strip()
+    if not question:
+        raise HTTPException(400, "ask a question")
+    from .translate import ClaudeTranslator
+    guide = ""
+    for p_ in (Path(__file__).resolve().parents[2] / "HOW_TO_USE.md",):
+        if p_.exists():
+            guide = p_.read_text(encoding="utf-8")
+    system = HELP_SYSTEM + guide + "\n\nTHIS JOB RIGHT NOW:\n" + _diagnostics(job_id)
+    history = [h for h in (body.get("history") or []) if isinstance(h, dict)][-6:]
+    convo = "".join(f"{h.get('role')}: {h.get('text')}\n" for h in history)
+    try:
+        t = ClaudeTranslator(HELP_MODEL)
+        answer = t._call(system, convo + "user: " + question)
+    except Exception as ex:
+        raise HTTPException(502, f"could not reach the model: {ex}")
+    job = _job(job_id)
+    m = job.meta
+    m.setdefault("usage_log", []).append({"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "model": HELP_MODEL,
+                                          "segments": 0, "help": True, **t.usage})
+    job.meta = m
+    job.save_meta()
+    return {"answer": answer}
+
+
 @app.get("/api/jobs/{job_id}/sheets")
 def sheets(job_id: str):
     """Windows for the separate sheets found in a DXF model space (1 = whole drawing)."""

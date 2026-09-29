@@ -102,6 +102,30 @@
   </form>
 </dialog>
 
+<dialog id="helpDlg" style="max-width:720px;width:92vw">
+  <div class="row" style="justify-content:space-between;align-items:baseline">
+    <strong>Help with this drawing</strong>
+    <button type="button" onclick="helpDlg.close()">Close</button>
+  </div>
+  <div id="helpLog" style="max-height:46vh;overflow:auto;margin:10px 0"></div>
+  <form onsubmit="return askHelp(event)" style="margin:0">
+    <input id="helpQ" type="text" autocomplete="off" style="width:100%"
+           placeholder="e.g. is this stuck? why is this label squashed? what does overflow mean?">
+    <div class="row" style="margin-top:8px">
+      <button type="button" onclick="showReport()">Report a problem</button>
+      <span style="flex:1"></span>
+      <button class="primary" type="submit" id="helpGo">Ask</button>
+    </div>
+  </form>
+  <div id="reportBox" style="display:none;margin-top:12px">
+    <label style="display:block;margin-bottom:6px">Copy this and send it to whoever maintains the app. It
+      describes what this job did; it carries no drawing text unless you tick the box.</label>
+    <label style="display:block;margin-bottom:6px"><input type="checkbox" id="repText" onchange="showReport()">
+      include the strings that did not fit</label>
+    <textarea id="repText2" readonly rows="14" style="width:100%;font-family:ui-monospace,monospace;font-size:12px"></textarea>
+    <div class="row" style="margin-top:8px"><button type="button" onclick="copyReport()">Copy</button></div>
+  </div>
+</dialog>
 <dialog id="newDlg">
   <form method="dialog" onsubmit="return submitNew(event)">
     <strong>New drawing</strong>
@@ -115,15 +139,32 @@
     <select name="source"><option value="ja">Japanese</option><option value="ru">Russian</option><option value="en">English</option></select>
     <label>Target language</label>
     <select name="target"><option value="en">English</option><option value="ja">Japanese</option></select>
-    <div class="row"><button type="button" onclick="newDlg.close()">Cancel</button><button class="primary" type="submit">Upload</button></div>
+    <div id="upProg" style="display:none">
+      <div style="height:6px;background:var(--line);border-radius:3px;overflow:hidden">
+        <div id="upBar" style="height:100%;width:0;background:var(--accent);transition:width .15s"></div>
+      </div>
+      <div id="upMsg" class="sub" style="margin-top:6px;color:var(--mute)"></div>
+    </div>
+    <div class="row"><button type="button" onclick="newDlg.close()">Cancel</button><button class="primary" type="submit" id="upGo">Upload</button></div>
   </form>
 </dialog>
 
 <script>
 const $ = s => document.querySelector(s);
+// A 502/503 comes from the host, not the app, and its body is a whole HTML
+// page. Showing that raw is unreadable and looks like the drawing broke, when
+// the usual cause is the server restarting after an update.
+function friendlyError(status, body) {
+  if (status === 502 || status === 503 || status === 504)
+    return 'The server is restarting (this happens after an update). Wait a few seconds and try again — nothing was lost.';
+  let t = (body || '').trim();
+  try { t = JSON.parse(t).detail || t } catch (e) {}
+  if (/^\s*<(!doctype|html)/i.test(t)) return `The server returned an error (${status}). Try again in a moment.`;
+  return t || `Something went wrong (${status}).`;
+}
 const api = async (url, opt={}) => {
   const r = await fetch(url, opt);
-  if (!r.ok) { let t = await r.text(); try { t = JSON.parse(t).detail || t } catch(e){}; throw new Error(t) }
+  if (!r.ok) { throw new Error(friendlyError(r.status, await r.text())) }
   return r.headers.get('content-type')?.includes('json') ? r.json() : r;
 };
 let tick = null;
@@ -314,6 +355,7 @@ function renderHeader() {
       <button ${pa?'':'disabled'} onclick="saveAs('output')">Download ${(current.fmt||'dxf').toUpperCase()}</button>
       <button ${pa?'':'disabled'} onclick="saveAs('report.md')">Report</button>
       <button ${busy||!pa?'disabled':''} onclick="act('remember')" title="Reuse these approved translations on later sheets">Store in memory</button>
+      <button onclick="openHelp()" title="Ask about this drawing, or report a problem">Help</button>
       <span style="flex:1"></span>
       <button ${busy?'disabled':''} onclick="del()">Delete</button>
     </div>`;
@@ -452,6 +494,57 @@ async function renderReport() {
   body.innerHTML = `<pre>${esc(await r.text())}</pre>`;
 }
 
+// ── help ──
+// The app knows exactly what a job did; a person looking at a spinner does not.
+// This puts those numbers in front of them, in words, without them having to
+// find a developer. It answers about the job in hand only, so it cannot make
+// up a state it has not been told about.
+let helpHistory = [];
+function openHelp() {
+  if (!current) { alert('Open a drawing first — help answers about the job you have selected.'); return; }
+  $('#reportBox').style.display = 'none';
+  if (!helpHistory.length) {
+    $('#helpLog').innerHTML = `<div class="sub" style="color:var(--mute)">Ask about <b>${esc(current.name)}</b>.
+      It can see this job's stages, flags and fit figures — not the drawing's text.</div>`;
+  }
+  $('#helpDlg').showModal(); $('#helpQ').focus();
+}
+function helpSay(role, text) {
+  const log = $('#helpLog');
+  const who = role === 'user' ? 'You' : 'Help';
+  const colour = role === 'user' ? 'var(--mute)' : 'inherit';
+  log.insertAdjacentHTML('beforeend',
+    `<div style="margin:10px 0;color:${colour}"><b>${who}</b><div style="white-space:pre-wrap">${esc(text)}</div></div>`);
+  log.scrollTop = log.scrollHeight;
+}
+async function askHelp(e) {
+  e.preventDefault();
+  const q = $('#helpQ').value.trim(); if (!q) return false;
+  const go = $('#helpGo');
+  $('#helpQ').value = ''; helpSay('user', q); go.disabled = true; go.textContent = 'Thinking…';
+  try {
+    const r = await api(`/api/jobs/${current.id}/help`, {method:'POST', headers:{'content-type':'application/json'},
+                        body: JSON.stringify({question: q, history: helpHistory})});
+    helpSay('help', r.answer);
+    helpHistory.push({role:'user', text:q}, {role:'help', text:r.answer});
+    loadSpend();
+  } catch (err) { helpSay('help', 'Could not answer: ' + err.message); }
+  go.disabled = false; go.textContent = 'Ask';
+  return false;
+}
+async function showReport() {
+  const box = $('#reportBox'); box.style.display = '';
+  const withText = $('#repText').checked ? 1 : 0;
+  $('#repText2').value = 'fetching…';
+  try { $('#repText2').value = (await api(`/api/jobs/${current.id}/diagnostics?text=${withText}`)).text; }
+  catch (err) { $('#repText2').value = 'Could not gather the details: ' + err.message; }
+}
+function copyReport() {
+  const t = $('#repText2'); t.select();
+  navigator.clipboard.writeText(t.value).then(() => toast('Copied — paste it into your message'),
+                                              () => toast('Select the text and copy it'));
+}
+
 // ── new job ──
 function openNew(client, project) {
   const c = client || (current && current.client) || Object.keys(folderTree)[0] || '', p = project || (current && current.project) || '';
@@ -461,13 +554,48 @@ function openNew(client, project) {
   if (sib.length) { const f = $('#newDlg form'); f.source.value = sib[sib.length - 1].source; f.target.value = sib[sib.length - 1].target; }
   $('#newDlg').showModal();
 }
-async function submitNew(e) {
+// A 20 MB drawing takes a while to send and the browser shows nothing while
+// it does. Without a number on screen there is no way to tell an upload in
+// progress from one that never started, so the file gets sent again -- which
+// is how one drawing became four jobs. XMLHttpRequest reports progress; fetch
+// does not, which is the only reason this is not an api() call.
+function submitNew(e) {
   e.preventDefault();
   const fd = new FormData(e.target);
   const f = pickedFolder('up'); if (!f.client || !f.project) { alert('Give the client and project a name'); return false; }
   fd.set('client', f.client); fd.set('project', f.project);
-  try { const j = await api('/api/jobs', {method:'POST', body: fd}); $('#newDlg').close(); e.target.reset(); await openJob(j.id); }
-  catch (err) { alert(err.message) }
+  const form = e.target, bar = $('#upBar'), msg = $('#upMsg'), go = $('#upGo');
+  $('#upProg').style.display = ''; go.disabled = true; go.textContent = 'Sending…';
+  const size = (fd.get('file') || {}).size || 0;
+  const mb = (n) => (n / 1048576).toFixed(1) + ' MB';
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/jobs');
+  xhr.upload.onprogress = (ev) => {
+    if (!ev.lengthComputable) return;
+    const pct = Math.round(ev.loaded / ev.total * 100);
+    bar.style.width = pct + '%';
+    msg.textContent = `Sending ${mb(ev.loaded)} of ${mb(ev.total)} · ${pct}%`;
+  };
+  xhr.upload.onload = () => {
+    bar.style.width = '100%';
+    // The file is on the server now; it still has to read the drawing, which
+    // on a big set is the longer half. Say so, or this looks like a freeze.
+    msg.textContent = size > 5e6 ? 'Sent. Reading the drawing — a large set takes a minute…'
+                                 : 'Sent. Reading the drawing…';
+  };
+  const done = () => { $('#upProg').style.display = 'none'; bar.style.width = '0';
+                       msg.textContent = ''; go.disabled = false; go.textContent = 'Upload'; };
+  xhr.onload = async () => {
+    if (xhr.status >= 200 && xhr.status < 300) {
+      let j = {}; try { j = JSON.parse(xhr.responseText) } catch (err) {}
+      done(); $('#newDlg').close(); form.reset();
+      if (j.id) await openJob(j.id); else loadJobs();
+    } else {
+      done(); alert(friendlyError(xhr.status, xhr.responseText));
+    }
+  };
+  xhr.onerror = () => { done(); alert('The upload did not reach the server. Check your connection and try again — nothing was created.'); };
+  xhr.send(fd);
   return false;
 }
 loadJobs();

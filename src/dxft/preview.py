@@ -217,12 +217,33 @@ def sheets(inventory_path: Path, pad: float = 0.03) -> list[tuple[float, float, 
     groups: dict[int, list[int]] = {}
     for i in range(len(pts)):
         groups.setdefault(find(i), []).append(i)
-    out = []
+    boxes = []
     for members in groups.values():
         if len(members) < 5:
             continue
-        x0 = min(pts[i][0] for i in members); x1 = max(pts[i][0] for i in members)
-        y0 = min(pts[i][1] for i in members); y1 = max(pts[i][1] for i in members)
+        boxes.append([min(pts[i][0] for i in members), min(pts[i][1] for i in members),
+                      max(pts[i][0] for i in members), max(pts[i][1] for i in members)])
+    # One sheet, not two. A single sheet's text can fall into separate clusters
+    # -- a column of notes with clear space all round it is far from everything
+    # else in both directions -- but the sheets of a set are laid out side by
+    # side and never overlap. Boxes that do overlap are one sheet, and showing
+    # the inner one as its own "sheet" only crops the drawing.
+    merged = True
+    while merged:
+        merged = False
+        for i in range(len(boxes)):
+            for j in range(i + 1, len(boxes)):
+                a, b = boxes[i], boxes[j]
+                if a[0] <= b[2] and b[0] <= a[2] and a[1] <= b[3] and b[1] <= a[3]:
+                    boxes[i] = [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
+                    boxes.pop(j)
+                    merged = True
+                    break
+            if merged:
+                break
+
+    out = []
+    for x0, y0, x1, y1 in boxes:
         w, h = max(x1 - x0, 20 * med), max(y1 - y0, 20 * med)
         # text sits inside the drawing, not around it: pad well, and keep a
         # sheet-like proportion so tall drawings under short labels are kept

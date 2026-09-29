@@ -72,6 +72,9 @@
   .proj>.ph .add{margin-left:6px;border:1px solid var(--line);border-radius:4px;padding:0 5px;font-size:11px;color:var(--mute);background:#fff;cursor:pointer}
   .proj>.ph .add:hover{color:var(--accent);border-color:var(--accent)}
   .job[draggable=true]{cursor:grab} .ph.dragover,.fh.dragover{background:#e3ecf5;outline:1px dashed var(--accent)}
+  .fh .del,.ph .del{margin-left:6px;padding:0 5px;border-radius:4px;color:var(--mute);cursor:pointer;opacity:0;font-size:13px;line-height:1.2}
+  .fh:hover .del,.ph:hover .del{opacity:1}
+  .fh .del:hover,.ph .del:hover{background:#f9e3e1;color:var(--bad)}
 </style>
 </head>
 <body>
@@ -141,16 +144,19 @@ async function loadJobs() {
     const open = openFolders.has(c);
     const f = document.createElement('div'); f.className = 'folder' + (open ? '' : ' collapsed');
     const n = Object.values(tree[c]).reduce((a, l) => a + l.length, 0);
-    f.innerHTML = `<div class="fh"><span>${open ? '▾' : '▸'}</span><span>${esc(c)}</span><span class="n">${n}</span></div>`;
+    f.innerHTML = `<div class="fh"><span>${open ? '▾' : '▸'}</span><span>${esc(c)}</span><span class="n">${n}</span><span class="del" title="Delete this client and its ${n} job${n === 1 ? '' : 's'}">×</span></div>`;
     f.firstChild.onclick = () => toggleFolder(c);
+    f.querySelector('.del').onclick = (e) => { e.stopPropagation(); removeFolder(c, null, n); };
     dropTarget(f.firstChild, c, null);
     for (const p of Object.keys(tree[c]).sort()) {
       const pk = c + '/' + p;
       const popen = openFolders.has(pk);
       const pd = document.createElement('div'); pd.className = 'proj' + (popen ? '' : ' collapsed');
-      pd.innerHTML = `<div class="ph"><span>${popen ? '▾' : '▸'}</span><span>${esc(p)}</span><span style="margin-left:auto">${tree[c][p].length}</span><span class="add" title="Upload a drawing into this folder">+</span></div>`;
+      const pn = tree[c][p].length;
+      pd.innerHTML = `<div class="ph"><span>${popen ? '▾' : '▸'}</span><span>${esc(p)}</span><span style="margin-left:auto">${pn}</span><span class="add" title="Upload a drawing into this folder">+</span><span class="del" title="Delete this project and its ${pn} job${pn === 1 ? '' : 's'}">×</span></div>`;
       pd.firstChild.onclick = () => toggleFolder(pk);
       pd.querySelector('.add').onclick = (e) => { e.stopPropagation(); openNew(c, p); };
+      pd.querySelector('.del').onclick = (e) => { e.stopPropagation(); removeFolder(c, p, pn); };
       dropTarget(pd.firstChild, c, p);
       for (const j of tree[c][p]) {
         const d = document.createElement('div');
@@ -195,6 +201,29 @@ async function loadSpend() {
   $('#spend').innerHTML = `<span>Today <b>¥${y.today.toLocaleString()}</b></span><span>This month <b>¥${y.month.toLocaleString()}</b></span><span>All time <b>¥${y.all.toLocaleString()}</b></span><span title="rate in workspaces/pricing.json">@ ¥${spendData.jpy_per_usd}/$ · est.</span>`;
   if (current) renderHeader();
 }
+async function removeFolder(client, project, count) {
+  const what = project ? `project “${project}”` : `client “${client}” and every project in it`;
+  if (!confirm(`Delete the ${what}?\n\n${count} job${count === 1 ? '' : 's'} will be removed, with their drawings and reports. This cannot be undone.\n\nApproved translations stay in the memory and will still be reused.`)) return;
+  try {
+    const q = `client=${encodeURIComponent(client)}` + (project ? `&project=${encodeURIComponent(project)}` : "");
+    const r = await api(`/api/folders?${q}`, { method: "DELETE" });
+    if (current && (current.client || 'Unfiled') === client && (!project || (current.project || 'General') === project)) {
+      current = null; rows = [];
+      $('#view').innerHTML = '<div class="empty">Pick a job on the left.</div>';
+    }
+    loadJobs();
+    toast(`Deleted ${r.deleted} job${r.deleted === 1 ? '' : 's'}`);
+  } catch (e) { alert(e.message) }
+}
+
+function toast(text) {
+  const el = document.createElement('div');
+  el.textContent = text;
+  el.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:8px 14px;border-radius:8px;font-size:13px;z-index:99;box-shadow:0 4px 16px rgba(0,0,0,.2)';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2600);
+}
+
 function dropTarget(el, client, project) {
   el.ondragover = (e) => { e.preventDefault(); el.classList.add('dragover'); };
   el.ondragleave = () => el.classList.remove('dragover');

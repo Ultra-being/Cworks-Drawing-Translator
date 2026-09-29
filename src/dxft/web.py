@@ -224,6 +224,36 @@ def delete_job(job_id: str):
     return {"ok": True}
 
 
+@app.delete("/api/folders")
+def delete_folder(client: str, project: str | None = None):
+    """Delete a whole project, or a whole client, and every job filed under it.
+
+    The translation memory is not touched: it belongs to a language pair, not to
+    a client, and throwing away what has been approved would cost real money to
+    learn again.
+    """
+    doomed = []
+    for d in sorted(_root().glob("*/job.json")):
+        try:
+            m = json.loads(d.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if (m.get("client") or "Unfiled") != client:
+            continue
+        if project is not None and (m.get("project") or "General") != project:
+            continue
+        doomed.append(m["id"])
+
+    busy = [j for j in doomed if _running.get(j, {}).get("step")]
+    if busy:
+        raise HTTPException(409, f"{len(busy)} job(s) still running; wait for them to finish")
+
+    for job_id in doomed:
+        shutil.rmtree(_root() / job_id, ignore_errors=True)
+        _running.pop(job_id, None)
+    return {"ok": True, "deleted": len(doomed)}
+
+
 @app.post("/api/jobs/{job_id}/translate")
 def translate(job_id: str, mode: str = "claude"):
     job = _job(job_id)

@@ -53,17 +53,26 @@ Grid axes, marks like **ОК-9.1** or **Д-9л**, numbers, model numbers and cod
 3. **Download DXF/PDF** and open it in AutoCAD or the free **Autodesk Viewer** (viewer.autodesk.com — drag the file in). Look at: title block, tables/schedules, long notes paragraphs, anything that was flagged.
 4. **Report** tab lists everything that was written, narrowed, left untranslated, and the token usage.
 
-## 5. Store in memory (do this after review)
+## 5. Tidying up
+
+Hover a **project** or a **client** in the sidebar and a **×** appears. It deletes that
+folder and every job in it — the drawings, the previews and the reports. You are told
+how many jobs will go and asked to confirm; a job that is still running blocks it.
+
+Approved translations stay in the memory, so deleting old jobs costs you nothing: the
+next sheet still reuses everything that was learned.
+
+## 6. Store in memory (do this after review)
 
 When the sheet is reviewed and good, press **Store in memory**. Every approved translation is kept for that language pair and reused verbatim on the next sheets — so a 20-sheet set has an identical title block on every sheet and each later sheet costs less. Don't store a job you haven't looked at.
 
-## 6. Cost
+## 7. Cost
 
 The strip at the top shows the estimated spend **today / this month / all time in ¥**, and each job shows its own cost. It's calculated from the token counts and the prices in `workspaces/pricing.json` — if Anthropic's prices change, edit that file (also the ¥/$ rate).
 
 Rough guide: a plan sheet ≈ ¥100–300, a dense notes sheet ≈ ¥500–1,500, a 60-page PDF ≈ ¥5,000–15,000, before memory savings.
 
-## 7. Making it translate the way we want
+## 8. Making it translate the way we want
 
 The rules live in plain text files under `workspaces/` (there is a "Navigator Workspaces"-style folder on the Desktop for the Navigator app; this tool has its own `drawing-translator/workspaces/`):
 
@@ -73,7 +82,7 @@ The rules live in plain text files under `workspaces/` (there is a "Navigator Wo
 
 Edit, save, run the next job — no restart needed.
 
-## 8. If something goes wrong
+## 9. If something goes wrong
 
 - **Upload refused**: it must be `.dxf` or a vector `.pdf`. DWG must be exported first.
 - **A stage shows an error in red**: read it; most often it's a network/API hiccup — press Translate again. Nothing is lost; every stage is a file in the job folder.

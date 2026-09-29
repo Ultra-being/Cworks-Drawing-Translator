@@ -105,12 +105,18 @@ a{color:#1f4e79} .top{font-size:12px;color:#6b6a66;margin-bottom:18px}
 <li><strong>Download DXF/PDF</strong> and open it in AutoCAD or the free <strong>Autodesk Viewer</strong> (viewer.autodesk.com — drag the file in). Look at: title block, tables/schedules, long notes paragraphs, anything that was flagged.</li>
 <li><strong>Report</strong> tab lists everything that was written, narrowed, left untranslated, and the token usage.</li>
 </ol>
-<h2>5. Store in memory (do this after review)</h2>
+<h2>5. Tidying up</h2>
+<p>Hover a <strong>project</strong> or a <strong>client</strong> in the sidebar and a <strong>×</strong> appears. It deletes that
+folder and every job in it — the drawings, the previews and the reports. You are told
+how many jobs will go and asked to confirm; a job that is still running blocks it.</p>
+<p>Approved translations stay in the memory, so deleting old jobs costs you nothing: the
+next sheet still reuses everything that was learned.</p>
+<h2>6. Store in memory (do this after review)</h2>
 <p>When the sheet is reviewed and good, press <strong>Store in memory</strong>. Every approved translation is kept for that language pair and reused verbatim on the next sheets — so a 20-sheet set has an identical title block on every sheet and each later sheet costs less. Don't store a job you haven't looked at.</p>
-<h2>6. Cost</h2>
+<h2>7. Cost</h2>
 <p>The strip at the top shows the estimated spend <strong>today / this month / all time in ¥</strong>, and each job shows its own cost. It's calculated from the token counts and the prices in <code>workspaces/pricing.json</code> — if Anthropic's prices change, edit that file (also the ¥/$ rate).</p>
 <p>Rough guide: a plan sheet ≈ ¥100–300, a dense notes sheet ≈ ¥500–1,500, a 60-page PDF ≈ ¥5,000–15,000, before memory savings.</p>
-<h2>7. Making it translate the way we want</h2>
+<h2>8. Making it translate the way we want</h2>
 <p>The rules live in plain text files under <code>workspaces/</code> (there is a "Navigator Workspaces"-style folder on the Desktop for the Navigator app; this tool has its own <code>drawing-translator/workspaces/</code>):</p>
 <ul>
 <li><code>_references/rules.md</code> — what never to translate, abbreviations, house style.</li>
@@ -118,7 +124,7 @@ a{color:#1f4e79} .top{font-size:12px;color:#6b6a66;margin-bottom:18px}
 <li><code>CLAUDE.md</code> — the standing instructions to the model.</li>
 </ul>
 <p>Edit, save, run the next job — no restart needed.</p>
-<h2>8. If something goes wrong</h2>
+<h2>9. If something goes wrong</h2>
 <ul>
 <li><strong>Upload refused</strong>: it must be <code>.dxf</code> or a vector <code>.pdf</code>. DWG must be exported first.</li>
 <li><strong>A stage shows an error in red</strong>: read it; most often it's a network/API hiccup — press Translate again. Nothing is lost; every stage is a file in the job folder.</li>

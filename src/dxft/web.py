@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import gc
 import threading
 import time
 import traceback
@@ -82,6 +83,13 @@ def healthz():
 
 _running: dict[str, dict] = {}   # job id -> {"step": ..., "error": ...}
 _lock = threading.Lock()
+# Drawing a sheet is the most expensive thing this app does: a 20 MB drawing
+# costs the better part of a gigabyte, most of it building the picture rather
+# than reading the file. Two at once is more than the box has, and the kernel
+# does not politely refuse -- it kills the process, so every request in flight
+# dies with a 500 and whatever stage was running is left frozen mid-job. One
+# at a time; the second caller waits instead.
+_render_lock = threading.Lock()
 ROOT = JOBS
 
 
@@ -370,8 +378,19 @@ def preview_png(job_id: str, which: str, x0: float | None = None, y0: float | No
     key = ("overview" if (x0 is None) else f"{int(window[0])}_{int(window[1])}_{int(window[2])}_{int(window[3])}_{width}") + "_" + _preview_version()
     png = job.dir / f"preview_{which}_{key}.png"
     if not png.exists():
-        drawn = preview.render(src, png, window, width_px=width)
-        (job.dir / f"preview_{which}_{key}.json").write_text(json.dumps(drawn))
+        # Wait for the sheet in front, but not forever: clicking through the
+        # sheets of a ten-sheet drawing must not queue ten renders deep.
+        if not _render_lock.acquire(timeout=180):
+            raise HTTPException(503, "another sheet is being drawn; try again in a moment")
+        try:
+            if not png.exists():      # drawn while this request waited its turn
+                drawn = preview.render(src, png, window, width_px=width)
+                (job.dir / f"preview_{which}_{key}.json").write_text(json.dumps(drawn))
+        except MemoryError:
+            raise HTTPException(507, "this sheet is too large to draw here")
+        finally:
+            _render_lock.release()
+            gc.collect()
     headers = {}
     meta = job.dir / f"preview_{which}_{key}.json"
     if meta.exists():

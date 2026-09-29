@@ -294,10 +294,23 @@ async function openJob(id) {
   openFolders.add(current.client || 'Unfiled'); openFolders.add((current.client || 'Unfiled') + '/' + (current.project || 'General'));
   localStorage.setItem('dxft.open', JSON.stringify([...openFolders]));
   windowStack = []; page = 1; sheet = 0; sheetList = [];
-  try { sheetList = (await api(`/api/jobs/${id}/sheets`)).sheets || []; if (sheetList.length > 1) sheet = 1; } catch (e) {}
+  await loadSheets(id);
   rows = await api(`/api/jobs/${id}/review`);
   render(); loadJobs(); schedulePoll();
 }
+// Which sheets a drawing has is only known once its inventory has been read.
+// A job opened straight after upload is still reading, so the list comes back
+// empty and, loaded only once, stayed empty for the life of the page -- the
+// sheet picker never appeared for a ten-sheet drawing. Load it again whenever
+// a stage finishes, until it is known.
+async function loadSheets(id) {
+  try {
+    const r = await api(`/api/jobs/${id}/sheets`);
+    sheetList = r.sheets || [];
+    if (sheetList.length > 1 && sheet === 0) sheet = 1;
+  } catch (e) { sheetList = []; }
+}
+
 function schedulePoll() {
   clearTimeout(poll);
   // The server reports elapsed seconds on each poll; tick locally in between so
@@ -309,7 +322,10 @@ function schedulePoll() {
   if (current && current.running) poll = setTimeout(async () => {
     const before = current.running;
     current = await api('/api/jobs/' + current.id);
-    if (!current.running) { rows = await api(`/api/jobs/${current.id}/review`); render(); loadJobs(); loadSpend(); }
+    if (!current.running) {
+      if (!sheetList.length) await loadSheets(current.id);
+      rows = await api(`/api/jobs/${current.id}/review`); render(); loadJobs(); loadSpend();
+    }
     else { renderHeader(); }
     schedulePoll();
   }, 2000);

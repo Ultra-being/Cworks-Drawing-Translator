@@ -217,6 +217,35 @@ def set_table_cell(table, idx: int, new: str) -> str | None:
     return None
 
 
+W_CODE = re.compile(r"\\W([\d.]+);")
+
+
+def mtext_width_factor(raw: str) -> float:
+    r"""The width factor an MTEXT is really drawn at. A TEXT entity carries one
+    in a DXF attribute; an MTEXT carries it inline as \W, and a drafter who set
+    a line to \W1.134 has made it 13% wider than the measuring assumes. Codes
+    inside braces are scoped to their group, so the line's own factor is the
+    first one that is not in a group."""
+    depth = 0
+    i = 0
+    while i < len(raw):
+        c = raw[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth = max(depth - 1, 0)
+        elif c == "\\" and depth == 0:
+            m = W_CODE.match(raw, i)
+            if m:
+                try:
+                    return float(m.group(1)) or 1.0
+                except ValueError:
+                    return 1.0
+            i += 1   # some other code; step over its backslash
+        i += 1
+    return 1.0
+
+
 def _walk(doc: Drawing, space: Iterable, where: str, out: list[TextItem]) -> None:
     for e in space:
         t = e.dxftype()
@@ -233,7 +262,8 @@ def _walk(doc: Drawing, space: Iterable, where: str, out: list[TextItem]) -> Non
                 out.append(TextItem(
                     handle=e.dxf.handle, kind=t, where=where, layer=e.dxf.layer, style=e.dxf.style,
                     raw=e.text, plain=e.plain_text(), lang=detect_lang(e.plain_text()),
-                    height=float(e.dxf.char_height), rotation=float(e.dxf.rotation),
+                    height=float(e.dxf.char_height), width_factor=mtext_width_factor(e.text),
+                    rotation=float(e.dxf.rotation),
                     x=float(e.dxf.insert.x), y=float(e.dxf.insert.y), box_width=float(e.dxf.width or 0.0),
                 ))
             elif t == "INSERT":

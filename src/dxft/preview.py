@@ -242,13 +242,45 @@ def sheets(inventory_path: Path, pad: float = 0.03) -> list[tuple[float, float, 
             if merged:
                 break
 
-    out = []
-    for x0, y0, x1, y1 in boxes:
+    # These boxes hold only the text. A sheet is mostly drawing -- a plan, its
+    # grid and dimensions -- reaching well past the words on it, so a box padded
+    # by a margin shows the notes and cuts the plan off. What a sheet actually
+    # owns is the ground between it and the sheet next to it, so each box grows
+    # until it meets its neighbour half way. Sheets laid out in a grid then tile
+    # the drawing: nothing falls between two windows, and nothing is clipped.
+    def gap_to_neighbour(i: int, axis: int, forward: bool) -> float | None:
+        a = boxes[i]
+        other = 1 - axis
+        best = None
+        for j, b in enumerate(boxes):
+            if j == i:
+                continue
+            if b[other] > a[other + 2] or b[other + 2] < a[other]:
+                continue           # not alongside; a different row or column
+            d = (b[axis] - a[axis + 2]) if forward else (a[axis] - b[axis + 2])
+            if d >= 0 and (best is None or d < best):
+                best = d
+        return best
+
+    grown = []
+    for i, (x0, y0, x1, y1) in enumerate(boxes):
         w, h = max(x1 - x0, 20 * med), max(y1 - y0, 20 * med)
-        # text sits inside the drawing, not around it: pad well, and keep a
-        # sheet-like proportion so tall drawings under short labels are kept
-        px, py = w * 0.12 + 30 * med, h * 0.12 + 30 * med
-        bx0, by0, bx1, by1 = x0 - px, y0 - py, x1 + px, y1 + py
+        edges = []
+        for axis, forward in ((0, False), (0, True), (1, False), (1, True)):
+            g = gap_to_neighbour(i, axis, forward)
+            edges.append(None if g is None else g / 2)
+        # An outer edge has no neighbour to meet, so it takes the same room as
+        # the widest edge that does -- a sheet on the end of a row is not
+        # smaller than its neighbours, it just has nothing beyond it.
+        known = [e for e in edges if e is not None]
+        fallback = max(known) if known else max(w, h) * 0.12 + 30 * med
+        l, r, d, u = [fallback if e is None else e for e in edges]
+        grown.append((x0 - l, y0 - d, x1 + r, y1 + u))
+
+    out = []
+    for bx0, by0, bx1, by1 in grown:
+        # keep a sheet-like proportion so a wide drawing under short labels
+        # is not squashed into a letterbox
         if (by1 - by0) < (bx1 - bx0) / 1.6:
             extra = (bx1 - bx0) / 1.6 - (by1 - by0)
             by0 -= extra * 0.6; by1 += extra * 0.4

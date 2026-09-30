@@ -137,7 +137,15 @@
   <form method="dialog" onsubmit="return submitNew(event)">
     <strong>New drawing</strong>
     <label>Drawing file: .dxf (export DWG as DXF, R2007 or later) or a vector .pdf plotted from CAD</label>
-    <input type="file" name="file" accept=".dxf,.pdf" required>
+    <!-- The native file control carries its own tooltip ("No file chosen"),
+         which the browser leaves floating on the page when the dialog closes
+         under the cursor. A button of our own has no such thing. -->
+    <input type="file" name="file" accept=".dxf,.pdf" id="upFile" style="display:none"
+           onchange="$('#upFileName').textContent = this.files[0] ? this.files[0].name : 'No drawing chosen yet'">
+    <div style="display:flex;align-items:center;gap:10px">
+      <button type="button" onclick="$('#upFile').click()">Choose drawing…</button>
+      <span id="upFileName" class="sub" style="color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">No drawing chosen yet</span>
+    </div>
     <label>Client</label>
     <div class="pick"><select id="upClient" onchange="pickClient(this,'up')"></select><input type="text" id="upClientNew" placeholder="new client name" style="display:none"></div>
     <label>Project</label>

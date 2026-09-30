@@ -196,6 +196,22 @@ def sheets(inventory_path: Path, pad: float = 0.03) -> list[tuple[float, float, 
         boxes = [(d["box"], d.get("name")) if isinstance(d, dict) else (d, None) for d in drawn]
         pad = min(max(b[2] - b[0], b[3] - b[1]) for b, _ in boxes) * 0.02
         out = [((b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad), n) for b, n in boxes]
+        # A sheet's own title is often drawn just outside its border, and tall
+        # with it, so a fixed margin cuts the top off the words. Stretch each
+        # window over any text that starts inside it -- the whole of a title
+        # that pokes out, and nothing belonging to the sheet next door.
+        text = [(it["x"], it["y"], it.get("height") or 0, it.get("plain") or "")
+                for it in data["items"] if it["where"] == "model" and it["kind"] in ("TEXT", "MTEXT", "ATTRIB")]
+        grown_out = []
+        for (bx0, by0, bx1, by1), name in out:
+            for tx, ty, th, plain in text:
+                if not (bx0 <= tx <= bx1 and by0 <= ty <= by1) or th <= 0:
+                    continue
+                by1 = max(by1, ty + th * 1.25)
+                by0 = min(by0, ty - th * 0.25)
+            grown_out.append(((bx0, by0, bx1, by1), name))
+        out = grown_out
+
         if all(n for _, n in out):
             # The drawing numbers its own sheets. Where a frame sits in the
             # file is only where the drafter had room, so A-02 can be parked

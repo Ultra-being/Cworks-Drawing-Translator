@@ -249,14 +249,70 @@ def guide():
     return (STATIC / "guide.html").read_text(encoding="utf-8")
 
 
+TRASH_DAYS = 14
+
+
+def _trash() -> Path:
+    return _root() / "_trash"
+
+
+def _empty_old_trash() -> None:
+    """Let go of what was thrown away a fortnight ago."""
+    cutoff = time.time() - TRASH_DAYS * 86400
+    for d in _trash().glob("*"):
+        try:
+            if d.is_dir() and d.stat().st_mtime < cutoff:
+                shutil.rmtree(d, ignore_errors=True)
+        except Exception:
+            continue
+
+
 @app.delete("/api/jobs/{job_id}")
 def delete_job(job_id: str):
+    """Put a job aside rather than destroy it.
+
+    A job folder holds a translation that was paid for, and deleting was the
+    one action here with nothing behind it -- a misplaced click and the work
+    was gone. It goes to one side for a fortnight now, and can be had back
+    until then.
+    """
     job = _job(job_id)
     if _running.get(job_id, {}).get("step"):
         raise HTTPException(409, "job is busy")
-    shutil.rmtree(job.dir)
+    _trash().mkdir(parents=True, exist_ok=True)
+    kept = _trash() / job_id
+    shutil.rmtree(kept, ignore_errors=True)
+    shutil.move(str(job.dir), str(kept))
     _running.pop(job_id, None)
-    return {"ok": True}
+    _empty_old_trash()
+    return {"ok": True, "recoverable_for_days": TRASH_DAYS}
+
+
+@app.post("/api/jobs/{job_id}/restore")
+def restore_job(job_id: str):
+    """Bring back a job that was put aside."""
+    kept = _trash() / job_id
+    if not (kept / "job.json").exists():
+        raise HTTPException(404, "that job is not in the bin — it may have been there over a fortnight")
+    back = _root() / job_id
+    if back.exists():
+        raise HTTPException(409, "a job with that name is already here")
+    shutil.move(str(kept), str(back))
+    return _state(job_id)
+
+
+@app.get("/api/trash")
+def list_trash():
+    """What can still be had back, newest first."""
+    out = []
+    for d in sorted(_trash().glob("*/job.json"), key=lambda p: p.parent.name, reverse=True):
+        try:
+            m = json.loads(d.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        m["deleted_days_ago"] = round((time.time() - d.parent.stat().st_mtime) / 86400, 1)
+        out.append(m)
+    return out
 
 
 @app.post("/api/jobs/{job_id}/unstick")
@@ -321,10 +377,17 @@ def delete_folder(client: str, project: str | None = None):
     if busy:
         raise HTTPException(409, f"{len(busy)} job(s) still running; wait for them to finish")
 
+    _trash().mkdir(parents=True, exist_ok=True)
     for job_id in doomed:
-        shutil.rmtree(_root() / job_id, ignore_errors=True)
+        kept = _trash() / job_id
+        shutil.rmtree(kept, ignore_errors=True)
+        try:            # aside, like a single delete: a whole folder is more to lose, not less
+            shutil.move(str(_root() / job_id), str(kept))
+        except Exception:
+            shutil.rmtree(_root() / job_id, ignore_errors=True)
         _running.pop(job_id, None)
-    return {"ok": True, "deleted": len(doomed)}
+    _empty_old_trash()
+    return {"ok": True, "deleted": len(doomed), "recoverable_for_days": TRASH_DAYS}
 
 
 @app.post("/api/jobs/{job_id}/translate")

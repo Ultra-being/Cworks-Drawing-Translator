@@ -314,8 +314,14 @@ class Job:
         if m["source"] == "auto" or _r(self.dir / "translations.json").get("mode") == "mock":
             return 0
         rows = self.review_table()
-        return Memory(self.dir.parent, m["source"], m["target"]).learn(
+        n = Memory(self.dir.parent, m["source"], m["target"]).learn(
             {r["source_marked"]: r["target"] for r in rows if r["approved"] and r["target"].strip()})
+        # Noted on the job, so deleting it can say whether the work would
+        # really be lost or is already safe in the memory.
+        m["remembered_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        self._meta = m
+        self.save_meta()
+        return n
 
     def patch(self, only_approved: bool = True, learn: bool = False) -> dict:
         self._measure_font()

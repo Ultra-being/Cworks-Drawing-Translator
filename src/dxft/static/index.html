@@ -260,7 +260,7 @@ async function loadSpend() {
 }
 async function removeFolder(client, project, count) {
   const what = project ? `project “${project}”` : `client “${client}” and every project in it`;
-  if (!confirm(`Delete the ${what}?\n\n${count} job${count === 1 ? '' : 's'} will be removed, with their drawings and reports. This cannot be undone.\n\nApproved translations stay in the memory and will still be reused.`)) return;
+  if (!confirm(`Delete the ${what}?\n\n${count} job${count === 1 ? '' : 's'} will be removed, with their drawings and reports. They go to the bin and can be brought back for 14 days.\n\nApproved translations stay in the memory and will still be reused.`)) return;
   try {
     const q = `client=${encodeURIComponent(client)}` + (project ? `&project=${encodeURIComponent(project)}` : "");
     const r = await api(`/api/folders?${q}`, { method: "DELETE" });
@@ -269,7 +269,7 @@ async function removeFolder(client, project, count) {
       $('#view').innerHTML = '<div class="empty">Pick a job on the left.</div>';
     }
     loadJobs();
-    toast(`Deleted ${r.deleted} job${r.deleted === 1 ? '' : 's'}`);
+    toast(`Deleted ${r.deleted} job${r.deleted === 1 ? '' : 's'} — in the bin for ${r.recoverable_for_days || 14} days`);
   } catch (e) { alert(e.message) }
 }
 
@@ -484,9 +484,34 @@ async function submitMove(e) {
   $('#moveDlg').close(); render(); loadJobs(); return false;
 }
 async function del() {
-  if (!confirm('Delete this job and its files?')) return;
-  await api(`/api/jobs/${current.id}`, {method:'DELETE'}); current = null; rows = [];
+  // Say what would actually be lost. A translation already in the memory can
+  // be had back for nothing; one that is not was paid for and is not stored
+  // anywhere else.
+  const paid = (current.stages || {}).translate && !current.remembered_at;
+  const warn = paid
+    ? '\n\nThis job\'s translations have NOT been stored in the memory, so they exist only here. "Store in memory" first if you may want them again.'
+    : '';
+  if (!confirm(`Delete ${current.name}?${warn}\n\nIt goes to the bin and can be brought back for 14 days.`)) return;
+  const id = current.id, name = current.name;
+  await api(`/api/jobs/${id}`, {method:'DELETE'}); current = null; rows = [];
   $('#view').innerHTML = '<div class="empty">Pick a job on the left.</div>'; loadJobs();
+  undoToast(`Deleted ${name}`, async () => {
+    await api(`/api/jobs/${id}/restore`, {method:'POST'});
+    await openJob(id); loadJobs(); toast('Brought back');
+  });
+}
+// A toast that can be acted on, for the things worth taking back.
+function undoToast(text, undo) {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:8px 10px 8px 14px;border-radius:8px;font-size:13px;z-index:99;box-shadow:0 4px 16px rgba(0,0,0,.2);display:flex;gap:10px;align-items:center';
+  el.innerHTML = `<span>${esc(text)}</span>`;
+  const b = document.createElement('button');
+  b.textContent = 'Undo';
+  b.style.cssText = 'padding:3px 10px;border-radius:6px;border:1px solid #fff6;background:transparent;color:#fff;cursor:pointer';
+  b.onclick = async () => { el.remove(); try { await undo() } catch (e) { alert(e.message) } };
+  el.appendChild(b);
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 12000);
 }
 
 // ── review ──

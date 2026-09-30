@@ -282,8 +282,7 @@ def _geometry_fingerprint(doc: Drawing) -> tuple[int, str]:
     """Count + hash of every non-text entity's type, layer and defining points."""
     h = hashlib.sha256()
     n = 0
-    spaces = [doc.modelspace()] + [lo for lo in doc.layouts if lo.name != "Model"] + [b for b in doc.blocks]
-    for space in spaces:
+    for space in _all_spaces(doc):
         for e in space:
             t = e.dxftype()
             if t in ("TEXT", "MTEXT", "ATTRIB", "ATTDEF", "MLEADER"):
@@ -313,13 +312,31 @@ class Verification:
     problems: list[str] = field(default_factory=list)
 
 
+def _all_spaces(doc: Drawing) -> list:
+    """Every place an entity can live, each exactly once. Model space and the
+    paper layouts are themselves blocks (*Model_Space, *Paper_Space), so a list
+    of layouts plus all blocks counts their contents twice."""
+    out = [doc.modelspace()] + [lo for lo in doc.layouts if lo.name != "Model"]
+    for b in doc.blocks:
+        if not b.name.startswith(("*Model_Space", "*Paper_Space")):
+            out.append(b)
+    return out
+
+
+def _count_text(doc: Drawing) -> int:
+    """Every piece of text in the drawing, wherever it lives. Counting only
+    model space misses text held in a block -- and a drawing whose labels sit
+    in blocks would show no change at all where a line had been added, so a
+    correct patch came back reading "geometry CHANGED"."""
+    return sum(1 for space in _all_spaces(doc) for e in space if e.dxftype() in ("TEXT", "MTEXT"))
+
+
 def verify(original_path: str, output_path: str, added_text: int = 0) -> Verification:
     a, _ = load(original_path)
     b, _ = load(output_path)
     na, ha = _geometry_fingerprint(a)
     nb, hb = _geometry_fingerprint(b)
-    ta = sum(1 for _ in a.modelspace().query("TEXT MTEXT"))
-    tb = sum(1 for _ in b.modelspace().query("TEXT MTEXT"))
+    ta, tb = _count_text(a), _count_text(b)
     problems = []
     if na != nb:
         problems.append(f"non-text entity count changed: {na} -> {nb}")

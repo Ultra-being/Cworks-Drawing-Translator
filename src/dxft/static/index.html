@@ -307,7 +307,11 @@ async function loadSheets(id) {
   try {
     const r = await api(`/api/jobs/${id}/sheets`);
     sheetList = r.sheets || [];
-    if (sheetList.length > 1 && sheet === 0) sheet = 1;
+    // The whole drawing is never the wrong thing to show. Which parts of it
+    // are separate sheets is worked out from where the text sits, and that
+    // guess is only as good as the drawing's layout -- on a set whose sheets
+    // are laid out unusually it can carve them up wrongly. So the drawing
+    // opens whole, as it always did, and the sheets are there to be chosen.
   } catch (e) { sheetList = []; }
 }
 

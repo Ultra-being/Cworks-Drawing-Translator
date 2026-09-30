@@ -346,7 +346,7 @@ class Job:
         report = self._report(res, ver, rows)
         (self.dir / "report.md").write_text(report, encoding="utf-8")
         info = {"patched": res.patched, "skipped": len(res.skipped), "narrowed": res.width_factors, "overflow": len(res.overflow),
-                "added_lines": res.added_lines,
+                "added_lines": res.added_lines, "ascii_forms": res.widened_forms,
                 "style_changes": res.style_changes, "verified": ver.ok, "problems": ver.problems}
         self._stage_done("patch", **info)
         return info
@@ -366,6 +366,7 @@ class Job:
             f"- Left untranslated (not approved or needs a human): {sum(1 for r in rows if not r['approved'])}",
             f"- Entities narrowed to fit: {res.width_factors}",
             f"- Lines added under a cell too narrow for its text: {res.added_lines}",
+            f"- Full-width characters put into ASCII for the Latin font: {res.widened_forms}",
             f"- Still overflowing (shorten these): {len(res.overflow)}",
             *[f"  - {i}: {next((r['target'][:70] for r in rows if r['id'] == i), '')!r}" for i in res.overflow],
             f"- Text styles changed for the target font: {len(res.style_changes)}",

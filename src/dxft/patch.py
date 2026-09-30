@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from dataclasses import dataclass, field
 
 import ezdxf
@@ -41,6 +42,7 @@ class PatchResult:
     width_factors: int = 0
     overflow: list[str] = field(default_factory=list)  # segment ids that still do not fit
     added_lines: int = 0      # lines written under a cell that could not hold its text on one
+    widened_forms: int = 0    # full-width characters put into ASCII so the Latin font can draw them
 
 
 def _font_can_display_ja(doc: Drawing, style_name: str) -> bool:
@@ -216,7 +218,47 @@ def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved
                 continue
             ja_style(item)
             result.patched += 1
+
+    if target != "ja" and styles_checked:
+        result.widened_forms = _ascii_forms(doc, styles_checked)
     return result
+
+
+FULLWIDTH = re.compile(r"[！-～　・･]")
+
+
+def _ascii_forms(doc: Drawing, restyled: set[str]) -> int:
+    r"""Put full-width punctuation into its ASCII form wherever a style has
+    been pointed at the Latin font.
+
+    A scale reading 1：100 is left alone by the translator -- it is a number,
+    not a phrase -- but its style is switched to Arial for the English around
+    it, and Arial has no full-width colon. The character the drafter typed
+    becomes a hollow box. Only the forms that have an exact ASCII counterpart
+    are changed; Japanese words are left as they are.
+    """
+    import unicodedata
+    n = 0
+    for space in _all_spaces(doc):
+        for e in space:
+            if e.dxftype() not in ("TEXT", "MTEXT") or e.dxf.style not in restyled:
+                continue
+            try:
+                before = e.dxf.text if e.dxftype() == "TEXT" else e.text
+                if not before or not FULLWIDTH.search(before):
+                    continue
+                after = "".join(unicodedata.normalize("NFKC", c) if FULLWIDTH.match(c) else c
+                                for c in before).replace("・", "·").replace("･", "·")
+                if after == before:
+                    continue
+                if e.dxftype() == "TEXT":
+                    e.dxf.text = after
+                else:
+                    e.text = after
+                n += 1
+            except Exception:
+                continue
+    return n
 
 
 def _patch_table_cell(doc: Drawing, handle: str, text: str) -> bool:

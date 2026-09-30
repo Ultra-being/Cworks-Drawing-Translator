@@ -242,7 +242,14 @@ def _rules(doc: Drawing, vertical: bool, limit: int) -> dict[str, list[list[floa
     references count too (some converters wrap every line in its own block),
     placed where the reference puts them."""
     out: dict[str, list[list[float]]] = {}
+    # Block definitions are spaces too, and text inside one is inventoried at
+    # that block's own coordinates. A title block holds its cell rules and its
+    # words together, so the rules must be gathered there as well -- read only
+    # from model space, a caption in a title block has no cell walls at all and
+    # nothing stops it running into the box beside it.
     spaces = [("model", doc.modelspace())] + [(f"paper:{lo.name}", lo) for lo in doc.layouts if lo.name != "Model"]
+    spaces += [(f"block:{b.name}", b) for b in doc.blocks
+               if not b.name.startswith(("*Model_Space", "*Paper_Space"))]
 
     def straight(ws: list[list[float]], x0: float, y0: float, x1: float, y1: float) -> None:
         along = (y0, y1) if vertical else (x0, x1)      # the way the line runs

@@ -394,12 +394,18 @@ function renderHeader() {
       <span class="sub" style="color:var(--mute);margin-left:auto">${spendData && spendData.per_job_jpy[current.id] != null ? 'Spent on this job ≈ <b>¥' + spendData.per_job_jpy[current.id].toLocaleString() + '</b>' : ''}</span></div>
     ${current.error ? `<div class="err">${esc(current.error)}</div>` : ''}
     <div class="stages">
-      ${st('inventory','1 Inventory', inv ? `${inv.strings} strings, ${inv.by_lang?.[current.source]||0} ${current.source}` : '')}
+      ${st('inventory','1 Inventory', inv ? `${inv.strings} strings, ${inv.by_lang?.[current.source]||0} ${current.source}${inv.links?.length ? ', ' + inv.links.length + ' linked file' + (inv.links.length===1?'':'s') + ' missing' : ''}` : '')}
       ${st('prepare','2 Prepare', pr ? `${pr.segments} unique${pr.paragraphs?', '+pr.paragraphs+' paragraphs':''}` : '')}
       ${st('translate','3 Translate', tr ? `${tr.translated} ok${tr.from_memory?', '+tr.from_memory+' from memory':''}${tr.needs_attention?', '+tr.needs_attention+' need a human':''}` : '')}
       ${st('review','4 Review', rows.length ? `${rows.filter(r=>r.approved).length}/${rows.length} approved` : '')}
       ${st('patch','5 Patch & verify', pa ? `${pa.patched} entities${pa.narrowed?', '+pa.narrowed+' narrowed':''}${pa.overflow?', '+pa.overflow+' overflow':''} · geometry ${pa.verified?'unchanged':'CHANGED'}` : '')}
     </div>
+    ${inv?.links?.length ? `<div style="background:#fef3c7;border:1px solid #f0c674;border-radius:6px;padding:9px 12px;margin:10px 0;font-size:13px">
+      This drawing <b>points at ${inv.links.length} file${inv.links.length===1?'':'s'} it does not contain</b> — a picture or another drawing placed into it.
+      They will be blank in the preview and in the drawing you download, and the sheet may show the file name in large letters instead.
+      That name is a path, not a label, so it is left untranslated. Ask for these from whoever sent the drawing:
+      <ul style="margin:6px 0 0 18px;padding:0">${inv.links.map(f => `<li style="font-family:ui-monospace,monospace">${esc(f)}</li>`).join('')}</ul>
+    </div>` : ''}
     <div class="actions">
       <button class="primary" ${busy||!pr?'disabled':''} onclick="act('translate')">${tr?'Re-translate':'Translate'}</button>
       <button ${busy||!tr?'disabled':''} onclick="act('approve-all')">Approve all clean</button>

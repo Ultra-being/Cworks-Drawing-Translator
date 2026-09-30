@@ -403,6 +403,37 @@ def mtext_width_factor(raw: str) -> float:
     return 1.0
 
 
+def linked_files(doc: Drawing) -> list[str]:
+    """Files this drawing points at but does not contain: placed images, PDF
+    and DWF underlays, external references.
+
+    A drawing that shows a scanned map is often holding only the path to it.
+    Sent on its own the picture is gone, and the reader is left with the file
+    name drawn across the sheet in letters an inch high -- which looks like
+    text that failed to translate, and is not text at all.
+    """
+    out: list[str] = []
+    for o in doc.objects:
+        if o.dxftype() not in ("IMAGEDEF", "PDFDEFINITION", "DWFDEFINITION", "DGNDEFINITION"):
+            continue
+        try:
+            name = str(o.dxf.filename or "").strip()
+        except Exception:
+            continue
+        if name:
+            out.append(name)
+    for b in doc.blocks:
+        try:
+            path = str(b.block.dxf.xref_path or "").strip()
+        except Exception:
+            continue
+        # A reference that was bound keeps the path it came from but carries
+        # its drawing with it. Only an empty one is actually missing.
+        if path and not any(True for _ in b):
+            out.append(path)
+    return sorted(set(out))
+
+
 def _walk(doc: Drawing, space: Iterable, where: str, out: list[TextItem]) -> None:
     for e in space:
         t = e.dxftype()

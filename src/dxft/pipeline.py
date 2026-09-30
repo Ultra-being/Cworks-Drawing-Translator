@@ -156,9 +156,11 @@ class Job:
         walls = inv.walls(doc)
         floors = inv.floors(doc)
         frames = inv.sheet_frames(doc)
+        links = inv.linked_files(doc)
+        summ["links"] = links
         _w(self.dir / "inventory.json", {"summary": summ, "audit_errors": audit_errors, "version": doc.dxfversion,
                                           "items": [it.to_dict() for it in items], "walls": walls,
-                                          "floors": floors, "frames": frames})
+                                          "floors": floors, "frames": frames, "links": links})
         self._stage_done("inventory", **summ)
         return summ
 
@@ -369,6 +371,12 @@ class Job:
             f"- Text styles changed for the target font: {len(res.style_changes)}",
             *[f"  - {s}" for s in res.style_changes],
             "",
+            *(["## Files this drawing points at but does not contain",
+               "A picture or another drawing was placed into this one by reference. It is not in the",
+               "DXF, so it is blank here and its file name may be drawn across the sheet instead. That",
+               "name is a path, not a label, and is left untranslated. Ask the sender for these:",
+               *[f"- `{f}`" for f in (m.get("stages", {}).get("inventory", {}) or {}).get("links", [])],
+               ""] if (m.get("stages", {}).get("inventory", {}) or {}).get("links") else []),
             "## Verification",
             f"- Geometry unchanged: {'yes' if ver.ok else 'NO'}",
             f"- Line-work entities: {ver.entities_before} before, {ver.entities_after} after",

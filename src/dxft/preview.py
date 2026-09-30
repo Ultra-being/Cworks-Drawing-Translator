@@ -28,6 +28,11 @@ def text_extent(inventory_path: Path, pad: float = 0.04) -> tuple[float, float, 
     return x0 - w * pad, y0 - h * pad, x1 + w * pad * 2, y1 + h * pad * 2
 
 
+# The most a sheet's window may grow beyond the text on it, as a share of
+# that text's own size. Enough to take in a border, a grid and dimension
+# strings; not enough to swallow the empty space between far-apart sheets.
+MARGIN = 0.3
+
 _CJK_READY = False
 
 
@@ -265,10 +270,16 @@ def sheets(inventory_path: Path, pad: float = 0.03) -> list[tuple[float, float, 
     grown = []
     for i, (x0, y0, x1, y1) in enumerate(boxes):
         w, h = max(x1 - x0, 20 * med), max(y1 - y0, 20 * med)
-        edges = []
+        edges: list[float | None] = []
+        # Meeting the neighbour half way is right when sheets sit close
+        # together, and absurd when they do not: sheets are often parked three
+        # widths apart, and half of that emptiness added to each side leaves
+        # the drawing a stamp in the corner of a blank page. Take the smaller
+        # of the two -- half the gap, or a margin around the sheet itself.
         for axis, forward in ((0, False), (0, True), (1, False), (1, True)):
             g = gap_to_neighbour(i, axis, forward)
-            edges.append(None if g is None else g / 2)
+            room = MARGIN * (w if axis == 0 else h)
+            edges.append(None if g is None else min(g / 2, room))
         # An outer edge has no neighbour to meet, so it takes the same room as
         # the widest edge that does -- a sheet on the end of a row is not
         # smaller than its neighbours, it just has nothing beyond it.

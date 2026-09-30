@@ -86,7 +86,37 @@ def _align_x(e) -> float:
 FRAME_WORDS = ("図枠", "図面枠", "frame", "border", "рамк", "титул")
 
 
-def sheet_frames(doc: Drawing, min_size: float = 5_000.0) -> list[list[float]]:
+SHEET_NO = re.compile(r"^\s*([A-Z]{1,3})\s*[-‐−ー–]\s*(\d{1,3})\s*$")
+
+
+def _sheet_number(doc: Drawing, box: list[float]) -> str | None:
+    """The sheet's own number, off its title block. A drawing says which sheet
+    each of its frames is; where the frame happens to sit in the file says
+    nothing -- a drafter parks them wherever there is room."""
+    w = max(box[2] - box[0], 1.0)
+    h = max(box[3] - box[1], 1.0)
+    best = None
+    for e in doc.modelspace():
+        if e.dxftype() not in ("TEXT", "MTEXT"):
+            continue
+        try:
+            txt = e.dxf.text if e.dxftype() == "TEXT" else e.plain_text()
+            x, y = e.dxf.insert[0], e.dxf.insert[1]
+        except Exception:
+            continue
+        if not (box[0] <= x <= box[2] and box[1] <= y <= box[3]):
+            continue
+        m = SHEET_NO.match(txt or "")
+        if not m:
+            continue
+        # the number sits in the title block: bottom right of the sheet
+        score = (x - box[0]) / w - (y - box[1]) / h
+        if best is None or score > best[0]:
+            best = (score, f"{m.group(1)}-{m.group(2)}")
+    return best[1] if best else None
+
+
+def sheet_frames(doc: Drawing, min_size: float = 5_000.0) -> list[dict]:
     r"""The sheets, as the drafter drew them.
 
     A drawing set almost always carries its own sheet borders, on a layer that
@@ -101,7 +131,7 @@ def sheet_frames(doc: Drawing, min_size: float = 5_000.0) -> list[list[float]]:
     """
     placed = _frame_inserts(doc, min_size)
     if placed:
-        return placed
+        return [{"box": b, "name": _sheet_number(doc, b)} for b in placed]
     layers = [l.dxf.name for l in doc.layers
               if any(w.lower() in l.dxf.name.lower() for w in FRAME_WORDS)]
     if not layers:
@@ -167,7 +197,7 @@ def sheet_frames(doc: Drawing, min_size: float = 5_000.0) -> list[list[float]]:
         w, h = max(xs) - min(xs), max(ys) - min(ys)
         if w >= min_size and h >= min_size:
             out.append([min(xs), min(ys), max(xs), max(ys)])
-    return out
+    return [{"box": b, "name": _sheet_number(doc, b)} for b in out]
 
 
 def _frame_inserts(doc: Drawing, min_size: float) -> list[list[float]]:

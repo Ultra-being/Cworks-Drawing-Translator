@@ -566,7 +566,8 @@ def sheets(job_id: str):
     # Sheets read from the drawing's own borders are exact and worth opening
     # on; sheets inferred from where the text falls are a guess, and a guess
     # must not take the whole drawing away from the reader.
-    return {"sheets": found, "exact": bool(getattr(preview.sheets, "from_frames", False))}
+    return {"sheets": found, "exact": bool(getattr(preview.sheets, "from_frames", False)),
+            "labels": list(getattr(preview.sheets, "labels", []) or [])}
 
 
 @app.get("/api/memory/{source}/{target}")

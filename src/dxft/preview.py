@@ -192,12 +192,26 @@ def sheets(inventory_path: Path, pad: float = 0.03) -> list[tuple[float, float, 
     drawn = data.get("frames") or []
     if drawn:
         sheets.from_frames = True
-        pad = min(max(b[2] - b[0], b[3] - b[1]) for b in drawn) * 0.02
-        out = [(b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad) for b in drawn]
-        height = max(b[3] - b[1] for b in out)
-        out.sort(key=lambda b: (-round(b[3] / max(height * 0.5, 1.0)), b[0]))
-        return out
+        # a frame is {"box": [...], "name": "A-01"}; older jobs stored the box alone
+        boxes = [(d["box"], d.get("name")) if isinstance(d, dict) else (d, None) for d in drawn]
+        pad = min(max(b[2] - b[0], b[3] - b[1]) for b, _ in boxes) * 0.02
+        out = [((b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad), n) for b, n in boxes]
+        if all(n for _, n in out):
+            # The drawing numbers its own sheets. Where a frame sits in the
+            # file is only where the drafter had room, so A-02 can be parked
+            # above A-01; the number is what the reader means by "first".
+            def key(item):
+                n = item[1]
+                head, _, tail = n.partition("-")
+                return (head, int(tail) if tail.isdigit() else 0)
+            out.sort(key=key)
+        else:
+            height = max(b[3] - b[1] for b, _ in out)
+            out.sort(key=lambda item: (-round(item[0][3] / max(height * 0.5, 1.0)), item[0][0]))
+        sheets.labels = [n for _, n in out]
+        return [b for b, _ in out]
     sheets.from_frames = False
+    sheets.labels = []
     pts = [(it["x"], it["y"], it["height"]) for it in data["items"]
            if it["where"] == "model" and it["kind"] in ("TEXT", "MTEXT", "ATTRIB") and it["height"] > 0]
     if len(pts) < 2:

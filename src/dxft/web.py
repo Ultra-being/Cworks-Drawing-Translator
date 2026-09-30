@@ -562,7 +562,11 @@ def sheets(job_id: str):
         except Exception:
             data["frames"] = []
             inv.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    return {"sheets": preview.sheets(inv)}
+    found = preview.sheets(inv)
+    # Sheets read from the drawing's own borders are exact and worth opening
+    # on; sheets inferred from where the text falls are a guess, and a guess
+    # must not take the whole drawing away from the reader.
+    return {"sheets": found, "exact": bool(getattr(preview.sheets, "from_frames", False))}
 
 
 @app.get("/api/memory/{source}/{target}")

@@ -191,11 +191,13 @@ def sheets(inventory_path: Path, pad: float = 0.03) -> list[tuple[float, float, 
     # is inference from where text happens to fall, which is only ever a guess.
     drawn = data.get("frames") or []
     if drawn:
+        sheets.from_frames = True
         pad = min(max(b[2] - b[0], b[3] - b[1]) for b in drawn) * 0.02
         out = [(b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad) for b in drawn]
         height = max(b[3] - b[1] for b in out)
         out.sort(key=lambda b: (-round(b[3] / max(height * 0.5, 1.0)), b[0]))
         return out
+    sheets.from_frames = False
     pts = [(it["x"], it["y"], it["height"]) for it in data["items"]
            if it["where"] == "model" and it["kind"] in ("TEXT", "MTEXT", "ATTRIB") and it["height"] > 0]
     if len(pts) < 2:

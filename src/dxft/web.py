@@ -90,6 +90,8 @@ _lock = threading.Lock()
 # dies with a 500 and whatever stage was running is left frozen mid-job. One
 # at a time; the second caller waits instead.
 _render_lock = threading.Lock()
+# Reading a drawing is the other expensive thing, and uploads arrive in a run.
+_read_lock = threading.Lock()
 ROOT = JOBS
 
 
@@ -114,18 +116,33 @@ def _state(job_id: str) -> dict:
     # How much of the work is done, when the step can count it. Translating
     # reports each batch as it lands; the other steps are one piece of work.
     meta["done"], meta["total"] = run.get("done"), run.get("total")
+    meta["waiting"] = bool(run.get("waiting"))
     return meta
 
 
-def _background(job_id: str, step: str, fn) -> None:
+def _background(job_id: str, step: str, fn, queued: bool = False) -> None:
     with _lock:
         if _running.get(job_id, {}).get("step"):
             raise HTTPException(409, f"job is busy: {_running[job_id]['step']}")
-        _running[job_id] = {"step": step, "error": None, "since": time.time()}
+        _running[job_id] = {"step": step, "error": None, "since": time.time(), "waiting": queued}
 
     def run():
         try:
-            fn()
+            if queued:
+                # Reading a drawing costs the better part of a gigabyte for a
+                # large one, and someone uploading a whole set starts them one
+                # after another. Two at once is more than the box has, and the
+                # kernel kills the process rather than refusing. One at a time;
+                # the rest wait their turn and say so.
+                _read_lock.acquire()
+                r = _running.get(job_id)
+                if r is not None:
+                    r["waiting"], r["since"] = False, time.time()
+            try:
+                fn()
+            finally:
+                if queued:
+                    _read_lock.release()
             _running[job_id] = {"step": None, "error": None}
         except Exception as ex:  # surfaced on the page, not lost in a log
             _running[job_id] = {"step": None, "error": f"{step}: {ex}\n{traceback.format_exc()[-800:]}"}
@@ -174,7 +191,7 @@ def create_job(file: UploadFile = File(...), source: str = Form("auto"), target:
         job.inventory()
         job.prepare()
 
-    _background(job.id, "inventory", prep)
+    _background(job.id, "inventory", prep, queued=True)
     return _state(job.id)
 
 
@@ -253,6 +270,30 @@ def unstick(job_id: str):
     _job(job_id)
     was = _running.pop(job_id, {}).get("step")
     return {"ok": True, "cleared": was}
+
+
+@app.post("/api/jobs/{job_id}/reread")
+def reread(job_id: str):
+    """Read the drawing again and work out its spaces afresh, keeping the
+    translations.
+
+    Stages 1 and 2 are where a drawing's sheets, cell walls and clear space
+    are worked out. When something improves there, a job translated earlier
+    knows nothing of it -- and re-uploading to get it means paying for the
+    same drawing twice. This re-runs those two stages in place. Stage 3 is
+    untouched, so what has already been translated stays translated, and the
+    memory covers anything the new segmentation asks for.
+    """
+    job = _job(job_id)
+    if job.fmt == "pdf":
+        raise HTTPException(400, "only a DXF can be read again")
+
+    def run():
+        job.inventory()
+        job.prepare()
+
+    _background(job_id, "inventory", run, queued=True)
+    return _state(job_id)
 
 
 @app.delete("/api/folders")

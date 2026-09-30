@@ -354,6 +354,8 @@ function render() {
 // work with nothing to count, and get the time they have been running.
 function busyHtml() {
   const el = elapsedText(current.runningFor);
+  if (current.waiting) return `<div class="empty" style="margin:60px auto">Waiting for another drawing to be read…
+    <div class="sub" style="color:var(--mute);margin-top:6px">one at a time, so the server does not run out of memory — this one starts on its own</div></div>`;
   const step = current.running === 'patch' ? 'Writing the drawing' :
                current.running === 'inventory' ? 'Reading the drawing' :
                current.running === 'translate' ? 'Translating' : 'Working';
@@ -413,13 +415,26 @@ function renderHeader() {
       <button ${pa?'':'disabled'} onclick="saveAs('output')">Download ${(current.fmt||'dxf').toUpperCase()}</button>
       <button ${pa?'':'disabled'} onclick="saveAs('report.md')">Report</button>
       <button ${busy||!pa?'disabled':''} onclick="act('remember')" title="Reuse these approved translations on later sheets">Store in memory</button>
+      <button ${busy||current.fmt==='pdf'?'disabled':''} onclick="act('reread')"
+              title="Read the drawing again — its sheets, cell walls and spacing — keeping the translations. Use after the app has been updated.">Re-read drawing</button>
       <button onclick="openHelp()" title="Ask about this drawing, or report a problem">Help</button>
       <span style="flex:1"></span>
+      ${busy || current.error ? `<button onclick="unstick()" title="Clear a step that is no longer running, after a restart">Unstick</button>` : ''}
       <button ${busy?'disabled':''} onclick="del()">Delete</button>
     </div>`;
 }
+// Clearing a step nobody is working on, after the server restarted under it.
+async function unstick() {
+  try {
+    const r = await api(`/api/jobs/${current.id}/unstick`, {method:'POST'});
+    toast(r.cleared ? `Cleared "${r.cleared}" — run that step again` : 'Nothing was stuck');
+    current = await api('/api/jobs/' + current.id);
+    render(); loadJobs(); schedulePoll();
+  } catch (e) { alert(e.message) }
+}
 async function act(what) {
   try {
+    if (what === 'reread' && !confirm('Read this drawing again?\n\nIts sheets, cell walls and spacing are worked out afresh, which is what picks up an improvement to the app. The translations are kept — nothing is sent to the model and nothing is charged.')) return;
     if (what === 'approve-all') { await api(`/api/jobs/${current.id}/approve-all`, {method:'POST'}); rows = await api(`/api/jobs/${current.id}/review`); render(); return; }
     if (what === 'remember') { const r = await api(`/api/jobs/${current.id}/remember`, {method:'POST'}); alert(`${r.stored} translations stored in the memory for ${current.source}→${current.target}`); return; }
     current = await api(`/api/jobs/${current.id}/${what}`, {method:'POST'});

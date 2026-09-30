@@ -323,7 +323,7 @@ function schedulePoll() {
   // the number never sits still while work is happening.
   clearInterval(tick);
   if (current?.running) tick = setInterval(() => {
-    if (current?.runningFor != null) { current.runningFor++; renderHeader(); }
+    if (current?.runningFor != null) { current.runningFor++; renderHeader(); renderBusy(); }
   }, 1000);
   if (current && current.running) poll = setTimeout(async () => {
     const before = current.running;
@@ -332,7 +332,7 @@ function schedulePoll() {
       if (!sheetList.length) await loadSheets(current.id);
       rows = await api(`/api/jobs/${current.id}/review`); render(); loadJobs(); loadSpend();
     }
-    else { renderHeader(); }
+    else { renderHeader(); renderBusy(); }
     schedulePoll();
   }, 2000);
 }
@@ -345,11 +345,37 @@ function render() {
   renderHeader();
   if (tab === 'review') renderReview(); else if (tab === 'preview') renderPreview(); else renderReport();
 }
+// "Working…" for two minutes says nothing. Translating counts its strings as
+// each batch comes back, so show that; the other steps are single pieces of
+// work with nothing to count, and get the time they have been running.
+function busyHtml() {
+  const el = elapsedText(current.runningFor);
+  const step = current.running === 'patch' ? 'Writing the drawing' :
+               current.running === 'inventory' ? 'Reading the drawing' :
+               current.running === 'translate' ? 'Translating' : 'Working';
+  if (current.total) {
+    const pct = Math.min(100, Math.round(current.done / current.total * 100));
+    return `<div class="empty" style="max-width:460px;margin:60px auto">
+      <div style="margin-bottom:10px">${step} · ${current.done} of ${current.total} strings${el ? ' · ' + el : ''}</div>
+      <div style="height:8px;background:var(--line);border-radius:4px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:var(--accent);transition:width .4s"></div>
+      </div>
+      <div class="sub" style="margin-top:8px;color:var(--mute)">${pct}%</div></div>`;
+  }
+  return `<div class="empty" style="margin:60px auto">${step}…${el ? ' · ' + el : ''}
+    <div class="sub" style="color:var(--mute);margin-top:6px">a large drawing takes a few minutes</div></div>`;
+}
+function renderBusy() {
+  if (!current || !current.running || tab !== 'review' || rows.length) return;
+  const body = $('#body'); if (body) body.innerHTML = busyHtml();
+}
+const elapsedText = (secs) => secs == null ? '' : secs < 60 ? `${secs}s` : `${Math.floor(secs/60)}m ${secs%60}s`;
+
 function renderHeader() {
   const s = current.stages || {}, run = current.running;
   // A running stage shows how long it has been going. "Translate… 3m 20s" is a
   // working app; a pulsing dot with no number looks broken after about a minute.
-  const elapsed = (secs) => secs == null ? '' : secs < 60 ? `${secs}s` : `${Math.floor(secs/60)}m ${secs%60}s`;
+  const elapsed = elapsedText;
   const st = (name, label, info) => {
     const running = run === name;
     const text = running ? (elapsed(current.runningFor) || 'working') : info;
@@ -430,7 +456,7 @@ function visible() {
 }
 function renderReview() {
   const body = $('#body');
-  if (!rows.length) { body.innerHTML = `<div class="empty">${current.running ? 'Working…' : 'Nothing to review yet. Translate first.'}</div>`; return; }
+  if (!rows.length) { body.innerHTML = current.running ? busyHtml() : `<div class="empty">Nothing to review yet. Translate first.</div>`; return; }
   const v = visible();
   body.innerHTML = `
     <div class="filters">

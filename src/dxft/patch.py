@@ -40,6 +40,7 @@ class PatchResult:
     style_changes: list[str] = field(default_factory=list)
     width_factors: int = 0
     overflow: list[str] = field(default_factory=list)  # segment ids that still do not fit
+    added_lines: int = 0      # lines written under a cell that could not hold its text on one
 
 
 def _font_can_display_ja(doc: Drawing, style_name: str) -> bool:
@@ -136,7 +137,8 @@ def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved
                 else:
                     per_line_max = (seg.line_caps_max[gi]
                                     if gi < len(seg.line_caps_max) and seg.line_caps_max[gi] else per_line)
-                    lines, wf, overflow = wrap_best(measure, per_line, per_line_max, len(group), cjk)
+                    spare = seg.spare[gi] if gi < len(seg.spare) else 0
+                    lines, wf, overflow = wrap_best(measure, per_line, per_line_max, len(group), cjk, spare)
                 if overflow and seg.id not in result.overflow:
                     result.overflow.append(seg.id)
                 if abs(wf - 1.0) > 0.01 and len(lines) == 1:
@@ -163,6 +165,27 @@ def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved
                         result.width_factors += 1
                     ja_style(item)
                     result.patched += 1
+                # A cell too narrow for its translation takes the rest on a new
+                # line in the space below it, rather than running through the
+                # column beside it. Nothing that was already drawn is moved;
+                # the report says how many of these were added.
+                for k in range(len(group), len(lines)):
+                    src = entity(group[-1])
+                    item = item_by_handle.get(group[-1])
+                    if src is None or item is None or src.dxftype() != "TEXT" or not lines[k].strip():
+                        continue
+                    try:
+                        extra = src.copy()
+                        drop = item.height * 1.45 * (k - len(group) + 1)
+                        extra.dxf.insert = (src.dxf.insert[0], src.dxf.insert[1] - drop, src.dxf.insert[2] if len(src.dxf.insert) > 2 else 0)
+                        if src.dxf.hasattr("align_point"):
+                            ap = src.dxf.align_point
+                            extra.dxf.align_point = (ap[0], ap[1] - drop, ap[2] if len(ap) > 2 else 0)
+                        extra.dxf.text = lines[k]
+                        src.get_layout().add_entity(extra)
+                        result.added_lines += 1
+                    except Exception:
+                        continue
             continue
 
         for handle in seg.handles:
@@ -290,7 +313,7 @@ class Verification:
     problems: list[str] = field(default_factory=list)
 
 
-def verify(original_path: str, output_path: str) -> Verification:
+def verify(original_path: str, output_path: str, added_text: int = 0) -> Verification:
     a, _ = load(original_path)
     b, _ = load(output_path)
     na, ha = _geometry_fingerprint(a)
@@ -302,8 +325,8 @@ def verify(original_path: str, output_path: str) -> Verification:
         problems.append(f"non-text entity count changed: {na} -> {nb}")
     if ha != hb:
         problems.append("geometry fingerprint changed")
-    if ta != tb:
-        problems.append(f"text entity count changed: {ta} -> {tb}")
+    if tb - ta != added_text:
+        problems.append(f"text entity count changed by {tb - ta}, expected {added_text}")
     return Verification(ok=not problems, entities_before=na, entities_after=nb, geometry_before=ha[:12], geometry_after=hb[:12],
                         text_before=ta, text_after=tb, problems=problems)
 

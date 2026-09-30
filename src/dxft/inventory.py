@@ -226,25 +226,41 @@ def _frame_inserts(doc: Drawing, min_size: float) -> list[list[float]]:
 
 def walls(doc: Drawing, limit: int = 400_000) -> dict[str, list[list[float]]]:
     """Vertical line segments per space: [x, y_low, y_high]. Table borders and
-    title-block cells are made of these; they bound how far text can grow.
-    Lines inside block references count too (some converters wrap every
-    line in its own block), placed where the reference puts them."""
+    title-block cells are made of these; they bound how far text can grow."""
+    return _rules(doc, True, limit)
+
+
+def floors(doc: Drawing, limit: int = 400_000) -> dict[str, list[list[float]]]:
+    """Horizontal line segments per space: [y, x_low, x_high]. The same table
+    borders seen the other way: these are what a cell's text would run into
+    if it took another line."""
+    return _rules(doc, False, limit)
+
+
+def _rules(doc: Drawing, vertical: bool, limit: int) -> dict[str, list[list[float]]]:
+    """Straight line segments along one axis, per space. Lines inside block
+    references count too (some converters wrap every line in its own block),
+    placed where the reference puts them."""
     out: dict[str, list[list[float]]] = {}
     spaces = [("model", doc.modelspace())] + [(f"paper:{lo.name}", lo) for lo in doc.layouts if lo.name != "Model"]
+
+    def straight(ws: list[list[float]], x0: float, y0: float, x1: float, y1: float) -> None:
+        along = (y0, y1) if vertical else (x0, x1)      # the way the line runs
+        across = (x0, x1) if vertical else (y0, y1)     # the way it must not
+        if abs(across[0] - across[1]) <= 0.01 * max(abs(along[0] - along[1]), 1e-9):
+            ws.append([float(across[0]), float(min(along)), float(max(along))])
 
     def add(ws: list[list[float]], e) -> None:
         t = e.dxftype()
         if t == "LINE":
             a, b = e.dxf.start, e.dxf.end
-            if abs(a.x - b.x) <= 0.01 * max(abs(a.y - b.y), 1e-9):
-                ws.append([float(a.x), float(min(a.y, b.y)), float(max(a.y, b.y))])
+            straight(ws, a.x, a.y, b.x, b.y)
         elif t == "LWPOLYLINE":
             pts = list(e.get_points("xy"))
             if e.closed and pts:
                 pts.append(pts[0])
             for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
-                if abs(x0 - x1) <= 0.01 * max(abs(y0 - y1), 1e-9):
-                    ws.append([float(x0), float(min(y0, y1)), float(max(y0, y1))])
+                straight(ws, x0, y0, x1, y1)
 
     for where, space in spaces:
         ws: list[list[float]] = []

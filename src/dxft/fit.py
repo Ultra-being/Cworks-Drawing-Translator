@@ -52,7 +52,8 @@ def assess(segments: list[Segment], translations: list[Translation], target_lang
         for gi, (group, cap) in enumerate(zip(s.groups, s.caps)):
             per_line = s.line_caps[gi] if gi < len(s.line_caps) and s.line_caps[gi] else cap
             per_line_max = s.line_caps_max[gi] if gi < len(s.line_caps_max) and s.line_caps_max[gi] else per_line
-            lines, wf, ov = wrap_best(plain_t, per_line, per_line_max, len(group), cjk)
+            spare = s.spare[gi] if gi < len(s.spare) else 0
+            lines, wf, ov = wrap_best(plain_t, per_line, per_line_max, len(group), cjk, spare)
             wf_min = min(wf_min, wf)
             used_max = max(used_max, len(lines))
             overflow = overflow or ov

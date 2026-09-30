@@ -154,10 +154,11 @@ class Job:
         items = inv.inventory(doc)
         summ = inv.summary(items)
         walls = inv.walls(doc)
+        floors = inv.floors(doc)
         frames = inv.sheet_frames(doc)
         _w(self.dir / "inventory.json", {"summary": summ, "audit_errors": audit_errors, "version": doc.dxfversion,
                                           "items": [it.to_dict() for it in items], "walls": walls,
-                                          "frames": frames})
+                                          "floors": floors, "frames": frames})
         self._stage_done("inventory", **summ)
         return summ
 
@@ -179,14 +180,14 @@ class Job:
         items = [inv.TextItem(**d) for d in data["items"]]
         source = self.meta["source"]
         langs = {source} if source != "auto" else {"ru", "ja"} if self.meta["target"] == "en" else {"ru", "en"}
-        segments, handle_map, skipped = prep.prepare(items, langs, data.get("walls", {}))
+        segments, handle_map, skipped = prep.prepare(items, langs, data.get("walls", {}), data.get("floors", {}))
         _w(self.dir / "segments.json", {"segments": [s.to_dict() for s in segments], "handle_map": handle_map, "skipped": skipped})
         info = {"segments": len(segments), "entities": len(handle_map), "skipped": len(skipped),
                 "paragraphs": sum(1 for s in segments if s.lines > 1)}
         self._stage_done("prepare", **info)
         return info
 
-    def translate(self, mode: str = "claude", model: str | None = None) -> dict:
+    def translate(self, mode: str = "claude", model: str | None = None, on_progress=None) -> dict:
         self._measure_font()
         data = _r(self.dir / "segments.json")
         segments = [prep.Segment(**s) for s in data["segments"]]
@@ -197,7 +198,15 @@ class Job:
         remembered = [tr.Translation(s.id, memory.get(s.source), note="; ".join(n for n in ("from memory", tr._name_note(source, s.source)) if n))
                       for s in segments if memory.get(s.source)]
         seen = {t.id for t in remembered}
-        fresh = translator.translate([s for s in segments if s.id not in seen], source, meta["target"]) if len(seen) < len(segments) else []
+        # Strings found in the memory are done before the first call is made,
+        # so they count towards the total from the start rather than making
+        # the first batch look like a huge leap.
+        total = len(segments)
+        if on_progress:
+            on_progress(len(remembered), total)
+        todo = [s for s in segments if s.id not in seen]
+        relay = (lambda done, _n: on_progress(len(remembered) + done, total)) if on_progress else None
+        fresh = translator.translate(todo, source, meta["target"], on_progress=relay) if todo else []
         by_id = {t.id: t for t in remembered + fresh}
         results = [by_id[s.id] for s in segments if s.id in by_id]
         _w(self.dir / "translations.json", {"mode": mode, "model": getattr(translator, "model", mode), "usage": translator.usage,
@@ -331,10 +340,11 @@ class Job:
             res = pt.apply(doc, items, segments, approved, self.meta["target"], wfs)
             out = self.output_path
             pt.save(doc, str(out))
-            ver = pt.verify(str(self.input_path), str(out))
+            ver = pt.verify(str(self.input_path), str(out), added_text=res.added_lines)
         report = self._report(res, ver, rows)
         (self.dir / "report.md").write_text(report, encoding="utf-8")
         info = {"patched": res.patched, "skipped": len(res.skipped), "narrowed": res.width_factors, "overflow": len(res.overflow),
+                "added_lines": res.added_lines,
                 "style_changes": res.style_changes, "verified": ver.ok, "problems": ver.problems}
         self._stage_done("patch", **info)
         return info
@@ -353,6 +363,7 @@ class Job:
             f"- Entities patched: {res.patched}",
             f"- Left untranslated (not approved or needs a human): {sum(1 for r in rows if not r['approved'])}",
             f"- Entities narrowed to fit: {res.width_factors}",
+            f"- Lines added under a cell too narrow for its text: {res.added_lines}",
             f"- Still overflowing (shorten these): {len(res.overflow)}",
             *[f"  - {i}: {next((r['target'][:70] for r in rows if r['id'] == i), '')!r}" for i in res.overflow],
             f"- Text styles changed for the target font: {len(res.style_changes)}",

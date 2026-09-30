@@ -261,6 +261,52 @@ def _line_candidate(it: TextItem) -> bool:
     return it.kind in ("TEXT", "PDF")
 
 
+def room_below(items: list[TextItem], floors: dict[str, list[list[float]]]) -> dict[str, float]:
+    """Clear space under each line of text, in drawing units: down to whatever
+    it would run into -- the next line of text in its own column, or the rule
+    beneath it. A table cell is usually taller than the one line in it, and
+    that spare height is where a translation too wide for the cell can go.
+    """
+    out: dict[str, float] = {}
+    by_space: dict[str, list[TextItem]] = {}
+    for it in items:
+        by_space.setdefault(it.where, []).append(it)
+    for where, group in by_space.items():
+        rules = sorted(floors.get(where, []), key=lambda r: r[0])
+        for it in group:
+            if not _flat(it) or it.height <= 0:
+                continue
+            x0, x1 = it.x, it.x + rendered_width(it)
+            if x1 <= x0:
+                continue
+            best = 1e18
+            for other in group:
+                if other.handle == it.handle or other.y >= it.y - 1e-9:
+                    continue
+                if other.x >= x1 or other.x + rendered_width(other) <= x0:
+                    continue
+                best = min(best, it.y - (other.y + other.height))
+            for ry, rx0, rx1 in rules:
+                if ry >= it.y - 1e-9:
+                    continue
+                if rx1 <= x0 or rx0 >= x1:
+                    continue
+                best = min(best, it.y - ry)
+            if best < 1e17:
+                out[it.handle] = max(best, 0.0)
+    return out
+
+
+def spare_lines(it: TextItem, clear: float, most: int = 2) -> int:
+    """How many further lines of this text would fit in that clear space.
+    A line needs its own height and the space between lines, and a little
+    left over so it does not sit against the rule below it."""
+    if it.height <= 0 or clear <= 0:
+        return 0
+    pitch = it.height * 1.45
+    return max(0, min(most, int((clear - it.height * 0.35) // pitch)))
+
+
 def paragraphs(items: list[TextItem], candidates: set[str]) -> list[Paragraph]:
     """Group stacked single-line entities that read as one paragraph.
 
@@ -373,7 +419,7 @@ def _caps_list(cap, n: int) -> list[float]:
     return list(cap) if isinstance(cap, list) else [cap] * n
 
 
-def wrap_best(text: str, per_line, per_line_max, max_lines: int, cjk: bool) -> tuple[list[str], float, bool]:
+def wrap_best(text: str, per_line, per_line_max, max_lines: int, cjk: bool, spare: int = 0) -> tuple[list[str], float, bool]:
     """Wrap inside the column the writer laid out; reach into the free space
     beside it only to save words that would otherwise fall off the end.
 
@@ -385,6 +431,15 @@ def wrap_best(text: str, per_line, per_line_max, max_lines: int, cjk: bool) -> t
     no line of it is left empty.
     """
     lines, wf, over = wrap_to(text, per_line, max_lines, cjk)
+    if (not over and wf >= 0.999) or spare <= 0:
+        pass
+    else:
+        # The line will not go in as it stands, and there is clear space under
+        # it. Taking another line there reads better than squeezing the letters
+        # or cutting words off, and is how the drafter set the cell next door.
+        wider = wrap_to(text, per_line, max_lines + spare, cjk)
+        if (wider[2], -wider[1]) < (over, -wf):
+            lines, wf, over = wider
     if not over or not per_line_max or per_line_max == per_line:
         return lines, wf, over
     need = em_width(text) / max(max_lines, 1) * 1.05

@@ -111,6 +111,9 @@ def _state(job_id: str) -> dict:
     # How long the current step has been going, so the page can say "4 min" and
     # stop looking identical to a step that died.
     meta["runningFor"] = int(time.time() - run["since"]) if run.get("step") and run.get("since") else None
+    # How much of the work is done, when the step can count it. Translating
+    # reports each batch as it lands; the other steps are one piece of work.
+    meta["done"], meta["total"] = run.get("done"), run.get("total")
     return meta
 
 
@@ -288,9 +291,17 @@ def translate(job_id: str, mode: str = "claude"):
     if "prepare" not in job.meta["stages"]:
         raise HTTPException(400, "inventory not finished")
 
+    def report(done: int, total: int) -> None:
+        r = _running.get(job_id)
+        if r is not None:
+            r["done"], r["total"] = done, total
+
     def run():
-        job.translate(mode)
+        job.translate(mode, on_progress=report)
         job.approve_all_ok()
+        r = _running.get(job_id)
+        if r is not None:
+            r.pop("done", None); r.pop("total", None)
         _running[job_id]["step"] = "patch"
         job.patch()              # write the drawing straight away; edits go in with Re-patch
         for p in job.dir.glob("preview_after*.png"):

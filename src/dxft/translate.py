@@ -37,7 +37,7 @@ class Translation:
 
 
 class Translator(Protocol):
-    def translate(self, segments: list[Segment], source: str, target: str) -> list[Translation]: ...
+    def translate(self, segments: list[Segment], source: str, target: str, on_progress=None) -> list[Translation]: ...
 
 
 def _read(path: Path) -> str:
@@ -116,12 +116,14 @@ class ClaudeTranslator:
                 out[str(k)] = (str(v), "")
         return out
 
-    def translate(self, segments: list[Segment], source: str, target: str) -> list[Translation]:
+    def translate(self, segments: list[Segment], source: str, target: str, on_progress=None) -> list[Translation]:
         system = build_system(source, target)
         out: list[Translation] = []
         for i in range(0, len(segments), BATCH):
             batch = segments[i:i + BATCH]
             out.extend(self._translate_batch(batch, source, target, system))
+            if on_progress:      # a batch has landed; say so while the rest run
+                on_progress(len(out), len(segments))
         return out
 
     def _translate_batch(self, batch: list[Segment], source: str, target: str, system: str, retry: bool = True) -> list[Translation]:
@@ -258,7 +260,7 @@ class MockTranslator:
     """No API. Wraps text so the round trip is visible in the drawing."""
     usage = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
 
-    def translate(self, segments: list[Segment], source: str, target: str) -> list[Translation]:
+    def translate(self, segments: list[Segment], source: str, target: str, on_progress=None) -> list[Translation]:
         tag = target.upper()
         out = []
         for s in segments:

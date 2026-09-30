@@ -67,6 +67,7 @@ class Segment:
     line_caps: list[list[float]] = field(default_factory=list)  # per instance: room of each line (indents make them differ)
     caps_max: list[float] = field(default_factory=list)         # the same, out to whatever stands to the right
     line_caps_max: list[list[float]] = field(default_factory=list)
+    spare: list[int] = field(default_factory=list)   # per instance: further lines the space below would take
     lines: int = 1         # lines available per instance (paragraphs > 1)
     budget_chars: int = 0  # length hint for the model, 0 = no constraint known
 
@@ -185,7 +186,8 @@ def is_translatable(item: TextItem, source_langs: set[str]) -> bool:
     return item.lang in source_langs
 
 
-def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list[list[float]]] | None = None
+def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list[list[float]]] | None = None,
+            floors: dict[str, list[list[float]]] | None = None
             ) -> tuple[list[Segment], dict[str, str], list[str]]:
     """Returns (segments, handle->segment id, skipped handles).
 
@@ -199,6 +201,7 @@ def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list
     translatable = {it.handle for it in items if is_translatable(it, source_langs)}
     skipped = [it.handle for it in items if it.handle not in translatable]
     avail = layout.available_widths(items, walls or {})
+    clear = layout.room_below(items, floors or {})
     item_by_handle = {it.handle: it for it in items}
 
     # Only real paragraphs are grouped. A line standing on its own takes the
@@ -237,6 +240,8 @@ def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list
         seg.line_caps.append(per_line)
         seg.caps_max.append(cap_max)
         seg.line_caps_max.append(per_line_max)
+        last = group[-1]
+        seg.spare.append(layout.spare_lines(last, clear.get(last.handle, 0.0)) if cap > 0 else 0)
         seg.lines = max(seg.lines, len(group))
         for t in group:
             seg.handles.append(t.handle)

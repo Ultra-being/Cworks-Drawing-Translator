@@ -187,6 +187,15 @@ def sheets(inventory_path: Path, pad: float = 0.03) -> list[tuple[float, float, 
     Text positions are clustered (single linkage); a gap wider than a few
     dozen text heights separates sheets. One cluster = the whole drawing."""
     data = json.loads(inventory_path.read_text(encoding="utf-8"))
+    # If the drawing states where its sheets are, believe it. Everything below
+    # is inference from where text happens to fall, which is only ever a guess.
+    drawn = data.get("frames") or []
+    if drawn:
+        pad = min(max(b[2] - b[0], b[3] - b[1]) for b in drawn) * 0.02
+        out = [(b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad) for b in drawn]
+        height = max(b[3] - b[1] for b in out)
+        out.sort(key=lambda b: (-round(b[3] / max(height * 0.5, 1.0)), b[0]))
+        return out
     pts = [(it["x"], it["y"], it["height"]) for it in data["items"]
            if it["where"] == "model" and it["kind"] in ("TEXT", "MTEXT", "ATTRIB") and it["height"] > 0]
     if len(pts) < 2:

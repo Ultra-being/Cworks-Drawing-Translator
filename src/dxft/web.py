@@ -549,6 +549,19 @@ def sheets(job_id: str):
     inv = job.dir / "inventory.json"
     if not inv.exists():
         return {"sheets": []}
+    # A job taken before the drawing's own sheet borders were read has no
+    # record of them. Read them now rather than making someone translate the
+    # drawing again for a picture.
+    data = json.loads(inv.read_text(encoding="utf-8"))
+    if "frames" not in data and job.input_path.exists():
+        try:
+            from . import inventory as invmod
+            doc, _ = invmod.load(str(job.input_path))
+            data["frames"] = invmod.sheet_frames(doc)
+            inv.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            data["frames"] = []
+            inv.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     return {"sheets": preview.sheets(inv)}
 
 

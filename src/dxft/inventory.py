@@ -83,6 +83,117 @@ def _align_x(e) -> float:
     return float(e.dxf.insert.x)
 
 
+FRAME_WORDS = ("図枠", "図面枠", "frame", "border", "рамк", "титул")
+
+
+def sheet_frames(doc: Drawing, min_size: float = 5_000.0) -> list[list[float]]:
+    r"""The sheets, as the drafter drew them.
+
+    A drawing set almost always carries its own sheet borders, on a layer that
+    says as much in its name -- 図枠 (drawing frame), рамка, "border". Those
+    rectangles are what a sheet actually is, and reading them beats guessing
+    from where the text happens to fall: text clusters split a sheet wherever
+    its notes leave a gap, and join sheets that sit close together.
+
+    Frame lines are grouped by proximity and each group's extent is one sheet.
+    A border drawn as two nested rectangles, an outer edge and an inner margin,
+    gives one group and so one sheet, which is what is wanted.
+    """
+    placed = _frame_inserts(doc, min_size)
+    if placed:
+        return placed
+    layers = [l.dxf.name for l in doc.layers
+              if any(w.lower() in l.dxf.name.lower() for w in FRAME_WORDS)]
+    if not layers:
+        return []
+    wanted = set(layers)
+    pts: list[tuple[float, float]] = []
+    joined: list[tuple[int, int]] = []      # ends of one line are one thing
+    for e in doc.modelspace():
+        if e.dxf.layer not in wanted:
+            continue
+        try:
+            if e.dxftype() == "LINE":
+                a, b = e.dxf.start, e.dxf.end
+                got = [(a[0], a[1]), (b[0], b[1])]
+            elif e.dxftype() == "LWPOLYLINE":
+                got = [(q[0], q[1]) for q in e.get_points("xy")]
+            else:
+                continue
+        except Exception:
+            continue
+        first = len(pts)
+        pts += got
+        joined += [(first, first + k) for k in range(1, len(got))]
+    if len(pts) < 4:
+        return []
+
+    # Two frame lines belong to the same sheet when they are nearer to each
+    # other than sheets are to one another. A sheet is thousands of units
+    # across; the gap between its own lines is a margin, a few hundred.
+    span = max(max(p[0] for p in pts) - min(p[0] for p in pts),
+               max(p[1] for p in pts) - min(p[1] for p in pts), 1.0)
+    gap = max(min_size * 0.5, span * 0.01)
+    parent = list(range(len(pts)))
+
+    def find(a: int) -> int:
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]; a = parent[a]
+        return a
+
+    # A border is a rectangle: its corners are a whole sheet apart and are
+    # only related through the lines that run between them. Join each line's
+    # own ends before looking at what is near what, or every corner becomes a
+    # cluster of one and no sheet is ever found.
+    for a, b in joined:
+        parent[find(a)] = find(b)
+
+    buckets: dict[tuple[int, int], list[int]] = {}
+    for i, (x, y) in enumerate(pts):
+        buckets.setdefault((int(x // gap), int(y // gap)), []).append(i)
+    for (cx, cy), members in buckets.items():
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for j in buckets.get((cx + dx, cy + dy), ()):
+                    for i in members:
+                        if abs(pts[i][0] - pts[j][0]) <= gap and abs(pts[i][1] - pts[j][1]) <= gap:
+                            parent[find(i)] = find(j)
+    groups: dict[int, list[int]] = {}
+    for i in range(len(pts)):
+        groups.setdefault(find(i), []).append(i)
+    out = []
+    for members in groups.values():
+        xs = [pts[i][0] for i in members]; ys = [pts[i][1] for i in members]
+        w, h = max(xs) - min(xs), max(ys) - min(ys)
+        if w >= min_size and h >= min_size:
+            out.append([min(xs), min(ys), max(xs), max(ys)])
+    return out
+
+
+def _frame_inserts(doc: Drawing, min_size: float) -> list[list[float]]:
+    """Sheets whose border is a block, placed once per sheet. A set of four
+    drawings on one file is four inserts of the same title block, which says
+    where each sheet is more exactly than anything else in the file."""
+    from ezdxf import bbox
+    out = []
+    for e in doc.modelspace():
+        if e.dxftype() != "INSERT":
+            continue
+        name = e.dxf.name or ""
+        if not any(w.lower() in name.lower() for w in FRAME_WORDS):
+            continue
+        try:
+            box = bbox.extents([e])
+        except Exception:
+            continue
+        if box is None or not box.has_data:
+            continue
+        w, h = box.size.x, box.size.y
+        if w >= min_size and h >= min_size:
+            out.append([box.extmin.x, box.extmin.y, box.extmax.x, box.extmax.y])
+    return out
+
+
 def walls(doc: Drawing, limit: int = 400_000) -> dict[str, list[list[float]]]:
     """Vertical line segments per space: [x, y_low, y_high]. Table borders and
     title-block cells are made of these; they bound how far text can grow.

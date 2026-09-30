@@ -154,8 +154,10 @@ class Job:
         items = inv.inventory(doc)
         summ = inv.summary(items)
         walls = inv.walls(doc)
+        frames = inv.sheet_frames(doc)
         _w(self.dir / "inventory.json", {"summary": summ, "audit_errors": audit_errors, "version": doc.dxfversion,
-                                          "items": [it.to_dict() for it in items], "walls": walls})
+                                          "items": [it.to_dict() for it in items], "walls": walls,
+                                          "frames": frames})
         self._stage_done("inventory", **summ)
         return summ
 

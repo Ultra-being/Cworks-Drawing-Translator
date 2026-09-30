@@ -205,9 +205,9 @@ class Job:
         # the first batch look like a huge leap.
         total = len(segments)
         if on_progress:
-            on_progress(len(remembered), total)
+            on_progress(len(remembered), total, "translate")
         todo = [s for s in segments if s.id not in seen]
-        relay = (lambda done, _n: on_progress(len(remembered) + done, total)) if on_progress else None
+        relay = (lambda done, _n: on_progress(len(remembered) + done, total, "translate")) if on_progress else None
         fresh = translator.translate(todo, source, meta["target"], on_progress=relay) if todo else []
         by_id = {t.id: t for t in remembered + fresh}
         results = [by_id[s.id] for s in segments if s.id in by_id]
@@ -235,6 +235,11 @@ class Job:
                     room = min(c for c in s.caps if c > 0) * s.lines if any(c > 0 for c in s.caps) else 0
                     budgets[f.id] = max(4, int(room / 0.6 * 0.95)) if room else 0
             budgets = {k: v for k, v in budgets.items() if v}
+            # The bar reached the end of the strings a moment ago, but the work
+            # has not: what did not fit goes back for tighter wording, and that
+            # is another call or two. Saying so beats sitting at 100%.
+            if on_progress and budgets:
+                on_progress(len(budgets), len(budgets), "shortening")
             by_id = {t.id: t for t in results}
             new_text = tr.shorten(translator, [seg_by_id[i] for i in budgets], {i: by_id[i].target for i in budgets}, budgets, source, meta["target"])
             for sid, text in new_text.items():

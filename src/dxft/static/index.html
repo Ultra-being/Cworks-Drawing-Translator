@@ -78,6 +78,10 @@
 </style>
 </head>
 <body>
+<div id="stale" style="display:none;background:#fef3c7;border-bottom:1px solid #f0c674;padding:8px 14px;font-size:13px">
+  The app has been updated since this page was opened — reload to get it.
+  <button onclick="location.reload()" style="margin-left:8px">Reload</button>
+</div>
 <header>
   <h1>Cworks Drawing Translator</h1>
   <span class="sub">DXF and vector PDF · Russian / Japanese → English / Japanese · geometry untouched</span>
@@ -661,6 +665,20 @@ function submitNew(e) {
   xhr.send(fd);
   return false;
 }
+// A page keeps running the code it was opened with, so after an update it
+// carries on behaving like the old one and there is no way to tell from
+// looking. Ask the server what it is running and say when they differ.
+let bootVersion = null;
+async function checkVersion() {
+  try {
+    const v = (await (await fetch('/healthz', {cache: 'no-store'})).json()).version;
+    if (bootVersion === null) { bootVersion = v; return; }
+    if (v && v !== bootVersion) $('#stale').style.display = '';
+  } catch (e) {}
+}
+checkVersion();
+setInterval(checkVersion, 60000);
+
 loadJobs();
 </script>
 </body>

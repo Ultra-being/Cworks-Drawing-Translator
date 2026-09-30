@@ -477,12 +477,27 @@ function renderPreview() {
   let win = windowStack[windowStack.length-1];
   if (!win && current.fmt!=='pdf' && sheet>0 && sheetList[sheet-1]) win = sheetList[sheet-1];
   const url = `/api/jobs/${current.id}/preview/${which}?page=${page}&v=${previewVersion}` + (win ? `&x0=${win[0]}&y0=${win[1]}&x1=${win[2]}&y1=${win[3]}` : '');
+  // Every ending has to stop the spinner and say something. A spinner that
+  // never stops is the one outcome a person cannot act on: it looks the same
+  // whether the sheet is still drawing, the picture failed to decode, or the
+  // request died on the way.
+  const fail = (text) => { clearInterval(tick); const pv = $('#pv'); if (pv) pv.innerHTML = `<div class="err">${esc(text)}</div>` };
   fetch(url).then(async r => {
-    if (!r.ok) throw new Error(await r.text());
+    if (!r.ok) {
+      const body = await r.text();
+      // 503 here is this app saying another sheet has the renderer, not the host
+      if (r.status === 503 && /drawn/i.test(body)) throw new Error(
+        'Another drawing is being drawn right now — only one is drawn at a time so the server does not run out of memory. Try again in a moment.');
+      throw new Error(friendlyError(r.status, body));
+    }
     const drawn = JSON.parse(r.headers.get('X-Window') || 'null');
-    const blob = await r.blob(); const img = new Image(); img.src = URL.createObjectURL(blob);
+    const blob = await r.blob();
+    if (!blob.size) throw new Error('The drawing came back empty. Try again, and if it repeats use Help · Report a problem.');
+    const img = new Image();
     img.onload = () => { clearInterval(tick); const pv = $('#pv'); if (!pv) return; pv.innerHTML = ''; pv.appendChild(img); if (drawn) dragZoom(pv, img, drawn); };
-  }).catch(e => { clearInterval(tick); const pv = $('#pv'); if (pv) pv.innerHTML = `<div class="err">${esc(e.message)}</div>` });
+    img.onerror = () => fail('The drawing arrived but could not be displayed. Try again, and if it repeats use Help · Report a problem.');
+    img.src = URL.createObjectURL(blob);
+  }).catch(e => fail(e.message));
 }
 function dragZoom(pv, img, drawn) {
   let start = null, box = null;

@@ -466,7 +466,16 @@ async function act(what) {
   try {
     if (what === 'reread' && !confirm('Read this drawing again?\n\nIts sheets, cell walls and spacing are worked out afresh, which is what picks up an improvement to the app. The translations are kept — nothing is sent to the model and nothing is charged.')) return;
     if (what === 'approve-all') { await api(`/api/jobs/${current.id}/approve-all`, {method:'POST'}); rows = await api(`/api/jobs/${current.id}/review`); render(); return; }
-    if (what === 'remember') { const r = await api(`/api/jobs/${current.id}/remember`, {method:'POST'}); alert(`${r.stored} translations stored in the memory for ${current.source}→${current.target}`); return; }
+    if (what === 'remember') {
+      const r = await api(`/api/jobs/${current.id}/remember`, {method:'POST'});
+      // Nothing new is the usual answer on a later sheet of a set, and it is
+      // not a failure: it means every string was already known. Say that.
+      current = await api('/api/jobs/' + current.id); renderHeader();
+      alert(r.stored
+        ? `${r.stored} translation${r.stored === 1 ? '' : 's'} stored in the memory for ${current.source}→${current.target}.\n\nLater sheets using the same wording will reuse them and cost nothing.`
+        : `Nothing new to store — every translation on this drawing was already in the memory for ${current.source}→${current.target}.`);
+      return;
+    }
     current = await api(`/api/jobs/${current.id}/${what}`, {method:'POST'});
     render(); loadJobs(); schedulePoll();
   } catch (e) { alert(e.message) }

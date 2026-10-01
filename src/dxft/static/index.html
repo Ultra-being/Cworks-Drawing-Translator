@@ -35,6 +35,8 @@
   section{padding:16px 20px;overflow:auto}
   button{font:inherit;padding:6px 12px;border:1px solid var(--line);background:var(--panel);border-radius:6px;cursor:pointer;color:var(--ink)}
   button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  /* the drawing is read and waiting: this is the one to press */
+  button.primary.go{background:var(--ok);border-color:var(--ok)}
   button:disabled{opacity:.45;cursor:default}
   select,input[type=text]{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:#fff}
   .job{padding:8px 10px;border-radius:6px;cursor:pointer;border:1px solid transparent;margin-bottom:4px}
@@ -437,7 +439,7 @@ function renderHeader() {
       <ul style="margin:6px 0 0 18px;padding:0">${inv.links.map(f => `<li style="font-family:ui-monospace,monospace">${esc(f)}</li>`).join('')}</ul>
     </div>` : ''}
     <div class="actions">
-      <button class="primary" ${busy||!pr?'disabled':''} onclick="act('translate')">${tr?'Re-translate':'Translate'}</button>
+      <button class="primary${!tr && pr && !busy ? ' go' : ''}" ${busy||!pr?'disabled':''} onclick="act('translate')">${tr?'Re-translate':'Translate'}</button>
       <button ${busy||!tr?'disabled':''} onclick="act('approve-all')">Approve all clean</button>
       <button class="primary" ${busy||!tr?'disabled':''} onclick="act('patch')">${pa?'Re-patch':'Patch & verify'}</button>
       <button ${pa?'':'disabled'} onclick="saveAs('output')">Download ${(current.fmt||'dxf').toUpperCase()}</button>

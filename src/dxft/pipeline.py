@@ -15,7 +15,9 @@ jobs/<id>/
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import threading
 import time
 import uuid
 from dataclasses import asdict
@@ -77,14 +79,35 @@ class Memory:
             if v.strip() and self.data.get(k) != v:
                 self.data[k] = v
                 n += 1
-        if n:
+        if not n:
+            return 0
+        # The memory is shared, and two people can be storing at once. Writing
+        # back what was read a moment ago would drop whatever the other one
+        # saved in between, without a word. Read it again here, under the lock,
+        # and add to that.
+        with _MEMORY_LOCK:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            _w(self.path, self.data)
+            latest: dict[str, str] = {}
+            if self.path.exists():
+                try:
+                    latest.update(_r(self.path))
+                except Exception:
+                    pass
+            latest.update({k: v for k, v in pairs.items() if v.strip()})
+            _w(self.path, latest)
+            self.data.update(latest)
         return n
 
 
+_MEMORY_LOCK = threading.Lock()
+
+
 def _w(path: Path, data) -> None:
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    """Write whole or not at all: a half-written file is worse than an old one,
+    and these are read by the next stage and by the other person's job."""
+    tmp = path.with_name(path.name + f".{os.getpid()}.part")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def _r(path: Path):

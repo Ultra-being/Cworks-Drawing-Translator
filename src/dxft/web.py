@@ -203,12 +203,16 @@ def get_job(job_id: str):
 
 @app.patch("/api/jobs/{job_id}")
 async def update_job(job_id: str, body: dict):
-    """Move a job to another client / project (folders in the sidebar)."""
+    """Move a job to another client / project, or file it away as done."""
     job = _job(job_id)
     m = job.meta
     for k in ("client", "project", "name"):
         if body.get(k) is not None and str(body[k]).strip():
             m[k] = str(body[k]).strip()
+    if "archived" in body:
+        # Finished work should not crowd what is still in hand, but it is not
+        # rubbish either: it keeps its folder and comes back to it.
+        m["archived_at"] = time.strftime("%Y-%m-%dT%H:%M:%S") if body["archived"] else None
     job.meta = m
     job.save_meta()
     return _state(job_id)

@@ -20,6 +20,10 @@
   .folder>.fh{display:flex;align-items:center;gap:6px;padding:6px 8px;font-weight:600;cursor:pointer;border-radius:6px;font-size:13px}
   .folder>.fh:hover{background:var(--bg)}
   .folder>.fh .n{color:var(--mute);font-weight:400;font-size:12px;margin-left:auto}
+  /* finished work: present, but not competing with what is in hand */
+  .folder.archive{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+  .folder.archive>.fh{color:var(--mute)}
+  .folder.archive .job .n{font-weight:500;color:var(--mute)}
   /* the one thing in the sidebar you aim at most: big enough to hit, and
      green while the folder is open so the shape is not the only clue */
   .arrow{font-size:22px;line-height:1;width:20px;text-align:center;color:var(--mute);flex:none}
@@ -200,8 +204,12 @@ async function loadJobs() {
   loadSpend();
   const el = $('#jobs');
   el.innerHTML = jobs.length ? '' : '<div class="empty">No jobs yet</div>';
+  // Finished work keeps its folder but is held back from it, so the folders
+  // show what is still in hand. Archived jobs gather at the foot of the list.
+  const done = jobs.filter(j => j.archived_at);
+  const live = jobs.filter(j => !j.archived_at);
   const tree = {};
-  for (const j of jobs) { const c = j.client || 'Unfiled', p = j.project || 'General'; ((tree[c] ??= {})[p] ??= []).push(j); }
+  for (const j of live) { const c = j.client || 'Unfiled', p = j.project || 'General'; ((tree[c] ??= {})[p] ??= []).push(j); }
   folderTree = tree;
   const clients = Object.keys(tree).sort((a, b) => a === 'Unfiled' ? 1 : b === 'Unfiled' ? -1 : a.localeCompare(b));
   if (openFolders.has('*first*')) { openFolders.delete('*first*'); clients.forEach(c => openFolders.add(c)); localStorage.setItem('dxft.open', JSON.stringify([...openFolders])); }
@@ -236,6 +244,41 @@ async function loadJobs() {
     }
     el.appendChild(f);
   }
+
+  // ── archive ──
+  const aopen = openFolders.has('*archive*');
+  const af = document.createElement('div');
+  af.className = 'folder archive' + (aopen ? '' : ' collapsed');
+  af.innerHTML = `<div class="fh"><span class="arrow${aopen ? ' open' : ''}">${aopen ? '▾' : '▸'}</span><span>Completed</span><span class="n">${done.length}</span></div>`;
+  af.firstChild.onclick = () => toggleFolder('*archive*');
+  af.firstChild.title = 'Drag a finished job here to file it away. It keeps its folder and can be dragged back.';
+  archiveDrop(af.firstChild);
+  for (const j of done.sort((a, b) => (b.archived_at || '').localeCompare(a.archived_at || ''))) {
+    const d = document.createElement('div');
+    d.className = 'job' + (current && current.id === j.id ? ' active' : '');
+    d.innerHTML = `<div class="n">${esc(j.name)}</div><div class="m">${esc(j.client || 'Unfiled')} / ${esc(j.project || 'General')} · ${j.source} → ${j.target} ${statusChip(j)}</div>`;
+    d.onclick = () => openJob(j.id);
+    d.draggable = true;
+    d.ondragstart = (e) => { e.dataTransfer.setData('text/plain', j.id); e.dataTransfer.effectAllowed = 'move'; };
+    af.appendChild(d);
+  }
+  el.appendChild(af);
+}
+// Dropping on Completed files a job away; dropping it back on its folder
+// brings it out again, which dropTarget does by clearing the flag.
+function archiveDrop(el) {
+  el.ondragover = (e) => { e.preventDefault(); el.classList.add('dragover'); };
+  el.ondragleave = () => el.classList.remove('dragover');
+  el.ondrop = async (e) => {
+    e.preventDefault(); el.classList.remove('dragover');
+    const id = e.dataTransfer.getData('text/plain'); if (!id) return;
+    await api(`/api/jobs/${id}`, {method:'PATCH', headers:{'content-type':'application/json'},
+                                  body: JSON.stringify({archived: true})});
+    if (current && current.id === id) { current = await api('/api/jobs/' + id); renderHeader(); }
+    openFolders.add('*archive*'); localStorage.setItem('dxft.open', JSON.stringify([...openFolders]));
+    loadJobs();
+    toast('Filed under Completed — drag it back to a folder to take it out');
+  };
 }
 let folderTree = {};
 function fillPickers(prefix, client, project) {
@@ -296,7 +339,8 @@ function dropTarget(el, client, project) {
     e.preventDefault(); el.classList.remove('dragover');
     const id = e.dataTransfer.getData('text/plain'); if (!id) return;
     const j = jobs.find(x => x.id === id); if (!j) return;
-    const body = { client, project: project || (Object.keys(folderTree[client] || {})[0] || 'General') };
+    // dropping onto a folder also takes a job back out of Completed
+    const body = { client, project: project || (Object.keys(folderTree[client] || {})[0] || 'General'), archived: false };
     await api(`/api/jobs/${id}`, {method:'PATCH', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
     if (current && current.id === id) { current = await api('/api/jobs/' + id); renderHeader(); }
     loadJobs();

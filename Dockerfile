@@ -6,13 +6,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md HOW_TO_USE.md TROUBLESHOOTING.md ./
 COPY src ./src
 COPY workspaces ./workspaces
 RUN pip install --no-cache-dir . && fc-cache -f || true
 
 # writable caches; jobs live on the mounted disk
-ENV MPLCONFIGDIR=/tmp/mpl XDG_CACHE_HOME=/tmp/cache DXFT_WORKSPACES=/app/workspaces PORT=10000
+ENV MPLCONFIGDIR=/tmp/mpl XDG_CACHE_HOME=/tmp/cache DXFT_WORKSPACES=/app/workspaces DXFT_GUIDES=/app PORT=10000
 RUN mkdir -p /data/jobs /tmp/mpl /tmp/cache
 
 EXPOSE 10000

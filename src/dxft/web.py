@@ -615,6 +615,34 @@ def diagnostics(job_id: str, text: int = 0):
     return {"text": _diagnostics(job_id, with_text=bool(text))}
 
 
+def _guides() -> str:
+    """The two guide files, as one block of text for the help desk.
+
+    HOW_TO_USE says how to drive the app; TROUBLESHOOTING is the diagnosis of
+    every awkward drawing we have met, and it is what lets the help desk tell a
+    fault in the tool apart from a drawing that was always like that. Adding to
+    those files is how the help desk is taught something new: no deploy, no code.
+
+    They are looked for in several places because the app runs two ways. From a
+    checkout they sit beside src/. Installed in the container the package lives
+    in site-packages, nowhere near the repository root, so the Dockerfile copies
+    them to /app and DXFT_GUIDES points here. Without this the help desk ran
+    with no guide at all and nobody could tell from the outside.
+    """
+    here = Path(__file__).resolve()
+    seen, out = set(), ""
+    for name in ("HOW_TO_USE.md", "TROUBLESHOOTING.md"):
+        for base in (os.environ.get("DXFT_GUIDES"), here.parents[2], here.parent, Path.cwd()):
+            if not base:
+                continue
+            p_ = Path(base) / name
+            if p_.exists() and p_ not in seen:
+                seen.add(p_)
+                out += f"\n\n===== {name} =====\n" + p_.read_text(encoding="utf-8")
+                break
+    return out
+
+
 HELP_SYSTEM = """You are the help desk inside the Cworks Drawing Translator, a tool that
 translates the text of construction drawings (DXF and vector PDF) between Japanese, Russian
 and English without altering any geometry. You are talking to the person using it -- an
@@ -622,6 +650,11 @@ engineer or a member of staff, not a programmer.
 
 Answer from the guide below and from the job's diagnostics. Be short and concrete: say what
 to click and what to expect. Use the job's actual numbers when they answer the question.
+
+Before saying anything is wrong with the output, work out whether the drawing was already
+like that. The troubleshooting guide explains how, and tells you which complaints are
+normally the drawing rather than the tool. Saying "check the Before preview at the same
+spot" is often the whole answer, and it is a better answer than a guess.
 
 What you must be straight about:
 - You cannot change the app or fix faults in it. If something is a fault in the tool rather
@@ -646,10 +679,12 @@ def help_chat(job_id: str, body: dict):
     if not question:
         raise HTTPException(400, "ask a question")
     from .translate import ClaudeTranslator
-    guide = ""
-    for p_ in (Path(__file__).resolve().parents[2] / "HOW_TO_USE.md",):
-        if p_.exists():
-            guide = p_.read_text(encoding="utf-8")
+    # Two files, and the order matters. HOW_TO_USE says how to drive the app;
+    # TROUBLESHOOTING is the diagnosis of every awkward drawing we have met, and
+    # it is what lets the help desk tell a fault in the tool apart from a drawing
+    # that was always like that. Adding to those files is how the help desk is
+    # taught something new -- it needs no deploy and no code change.
+    guide = _guides()
     system = HELP_SYSTEM + guide + "\n\nTHIS JOB RIGHT NOW:\n" + _diagnostics(job_id)
     history = [h for h in (body.get("history") or []) if isinstance(h, dict)][-6:]
     convo = "".join(f"{h.get('role')}: {h.get('text')}\n" for h in history)

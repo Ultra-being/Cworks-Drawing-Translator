@@ -148,8 +148,11 @@ def _stop_phantom_wrapping(doc) -> int:
 
 
 def render(dxf_path: Path, png_path: Path, window: tuple[float, float, float, float] | None = None,
-           width_px: int = 4000) -> tuple[float, float, float, float]:
-    """Render model space (or `window` of it) to PNG. Returns the window drawn."""
+           width_px: int = 4000, layout: str | None = None) -> tuple[float, float, float, float]:
+    """Render model space, or a named paper layout, to PNG. Returns the window
+    drawn. A paper layout is a sheet as the drafter plotted it -- border, title
+    block, and viewports onto the building -- so it is drawn whole, and the
+    window only narrows it when the reader has dragged a rectangle."""
     ensure_cjk_fallback()
     import matplotlib
     matplotlib.use("Agg")
@@ -162,12 +165,17 @@ def render(dxf_path: Path, png_path: Path, window: tuple[float, float, float, fl
     doc, _ = recover.readfile(str(dxf_path))
     _point_cjk_styles_at_cjk_font(doc)
     _stop_phantom_wrapping(doc)
-    msp = doc.modelspace()
+    space = doc.modelspace()
+    if layout:
+        try:
+            space = doc.layouts.get(layout)
+        except Exception:
+            space = doc.modelspace()
     cfg = Configuration(color_policy=ColorPolicy.BLACK, background_policy=BackgroundPolicy.WHITE)
     dpi = 200
     fig = plt.figure(figsize=(width_px / dpi, width_px / dpi), dpi=dpi)
     ax = fig.add_axes([0, 0, 1, 1]); ax.set_axis_off()
-    Frontend(RenderContext(doc), MatplotlibBackend(ax), config=cfg).draw_layout(msp, finalize=window is None)
+    Frontend(RenderContext(doc), MatplotlibBackend(ax), config=cfg).draw_layout(space, finalize=window is None)
     if window is None:
         x0, x1 = ax.get_xlim(); y0, y1 = ax.get_ylim()
         window = (x0, y0, x1, y1)

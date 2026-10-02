@@ -180,10 +180,13 @@ class Job:
         floors = inv.floors(doc)
         frames = inv.sheet_frames(doc)
         links = inv.linked_files(doc)
+        layouts = inv.paper_layouts(doc)
         summ["links"] = links
+        summ["layouts"] = len(layouts)
         _w(self.dir / "inventory.json", {"summary": summ, "audit_errors": audit_errors, "version": doc.dxfversion,
                                           "items": [it.to_dict() for it in items], "walls": walls,
-                                          "floors": floors, "frames": frames, "links": links})
+                                          "floors": floors, "frames": frames, "links": links,
+                                          "layouts": layouts})
         self._stage_done("inventory", **summ)
         return summ
 

@@ -34,6 +34,7 @@ app = FastAPI(title="Cworks Drawing Translator")
 import base64
 import hmac
 import os
+import re
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
@@ -478,7 +479,8 @@ def download(job_id: str, name: str):
 
 @app.get("/api/jobs/{job_id}/preview/{which}")
 def preview_png(job_id: str, which: str, x0: float | None = None, y0: float | None = None,
-                x1: float | None = None, y1: float | None = None, width: int = 4000, page: int = 1):
+                x1: float | None = None, y1: float | None = None, width: int = 4000, page: int = 1,
+                layout: str | None = None):
     """PNG of the input (before) or output (after). Without a window: the
     text extent of the sheet. Rendering is synchronous; big sheets take a minute."""
     job = _job(job_id)
@@ -490,12 +492,17 @@ def preview_png(job_id: str, which: str, x0: float | None = None, y0: float | No
     window = None
     if None not in (x0, y0, x1, y1):
         window = (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+    elif layout:
+        window = None                 # the whole sheet, as it was plotted
     else:
         inv = job.dir / "inventory.json"
         if inv.exists():
             found = preview.sheets(inv)
             window = found[0] if len(found) == 1 else preview.text_extent(inv)
-    key = ("overview" if (x0 is None) else f"{int(window[0])}_{int(window[1])}_{int(window[2])}_{int(window[3])}_{width}") + "_" + _preview_version()
+    tag = ("overview" if (x0 is None) else f"{int(window[0])}_{int(window[1])}_{int(window[2])}_{int(window[3])}_{width}")
+    if layout:
+        tag = "L" + re.sub(r"[^0-9A-Za-z]+", "_", layout)[:48] + "_" + tag
+    key = tag + "_" + _preview_version()
     png = job.dir / f"preview_{which}_{key}.png"
     if not png.exists():
         # Wait for the sheet in front, but not forever: clicking through the
@@ -504,7 +511,7 @@ def preview_png(job_id: str, which: str, x0: float | None = None, y0: float | No
             raise HTTPException(503, "another sheet is being drawn; try again in a moment")
         try:
             if not png.exists():      # drawn while this request waited its turn
-                drawn = preview.render(src, png, window, width_px=width)
+                drawn = preview.render(src, png, window, width_px=width, layout=layout)
                 (job.dir / f"preview_{which}_{key}.json").write_text(json.dumps(drawn))
         except MemoryError:
             raise HTTPException(507, "this sheet is too large to draw here")
@@ -673,20 +680,27 @@ def sheets(job_id: str):
     # record of them. Read them now rather than making someone translate the
     # drawing again for a picture.
     data = json.loads(inv.read_text(encoding="utf-8"))
-    if "frames" not in data and job.input_path.exists():
+    if ("frames" not in data or "layouts" not in data) and job.input_path.exists():
         try:
             from . import inventory as invmod
             doc, _ = invmod.load(str(job.input_path))
-            data["frames"] = invmod.sheet_frames(doc)
-            inv.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            data.setdefault("frames", invmod.sheet_frames(doc))
+            data.setdefault("layouts", invmod.paper_layouts(doc))
         except Exception:
-            data["frames"] = []
-            inv.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            data.setdefault("frames", [])
+            data.setdefault("layouts", [])
+        inv.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    # A drawing with paper layouts has already been laid out into sheets by
+    # whoever drew it. Nothing inferred from model space can better that.
+    layouts = data.get("layouts") or []
+    if layouts:
+        return {"sheets": [], "layouts": layouts, "labels": layouts, "exact": True}
+
     found = preview.sheets(inv)
     # Sheets read from the drawing's own borders are exact and worth opening
     # on; sheets inferred from where the text falls are a guess, and a guess
     # must not take the whole drawing away from the reader.
-    return {"sheets": found, "exact": bool(getattr(preview.sheets, "from_frames", False)),
+    return {"sheets": found, "layouts": [], "exact": bool(getattr(preview.sheets, "from_frames", False)),
             "labels": list(getattr(preview.sheets, "labels", []) or [])}
 
 

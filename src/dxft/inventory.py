@@ -410,6 +410,30 @@ def mtext_width_factor(raw: str) -> float:
     return 1.0
 
 
+def paper_layouts(doc: Drawing) -> list[str]:
+    """Sheets the drafter laid out in paper space, in their own order.
+
+    A Russian set often keeps nothing in model space but the building, and
+    every sheet of the set -- cover, plans, facades, schedules -- is a paper
+    layout with viewports onto it. Those layouts are the sheets; looking for
+    borders drawn in model space finds nothing at all.
+
+    A layout holding only viewports is a way of plotting the model, not a
+    sheet that was drawn: no border, no title block, nothing written on it.
+    A sheet has something of its own.
+    """
+    out = []
+    for lo in doc.layouts:
+        if lo.name == "Model":
+            continue
+        try:
+            if any(e.dxftype() != "VIEWPORT" for e in lo):
+                out.append(lo.name)
+        except Exception:
+            continue
+    return out
+
+
 def linked_files(doc: Drawing) -> list[str]:
     """Files this drawing points at but does not contain: placed images, PDF
     and DWF underlays, external references.

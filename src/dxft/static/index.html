@@ -195,7 +195,7 @@ const api = async (url, opt={}) => {
   return r.headers.get('content-type')?.includes('json') ? r.json() : r;
 };
 let tick = null;
-let jobs = [], current = null, rows = [], tab = 'review', filter = 'all', search = '', poll = null, which = 'after', windowStack = [], page = 1, sheet = 0, sheetList = [], sheetLabels = [], sheetsExact = false, previewVersion = 3;
+let jobs = [], current = null, rows = [], tab = 'review', filter = 'all', search = '', poll = null, which = 'after', windowStack = [], page = 1, sheet = 0, sheetList = [], sheetLayouts = [], sheetLabels = [], sheetsExact = false, previewVersion = 3;
 
 const openFolders = new Set(JSON.parse(localStorage.getItem('dxft.open') || 'null') || ['*first*']);
 function toggleFolder(key) { openFolders.has(key) ? openFolders.delete(key) : openFolders.add(key); localStorage.setItem('dxft.open', JSON.stringify([...openFolders])); loadJobs(); }
@@ -374,14 +374,15 @@ async function loadSheets(id) {
   try {
     const r = await api(`/api/jobs/${id}/sheets`);
     sheetList = r.sheets || [];
+    sheetLayouts = r.layouts || [];
     sheetLabels = r.labels || [];
     sheetsExact = !!r.exact;
     // Open on the first sheet when the drawing told us where its sheets are:
     // a set whose sheets sit far apart is unreadable shown whole. When the
     // sheets are only inferred from where the text falls, the drawing opens
     // whole instead -- a guess must not take the view away.
-    if (sheetsExact && sheetList.length && sheet === 0) sheet = 1;
-  } catch (e) { sheetList = []; sheetLabels = []; sheetsExact = false; }
+    if (sheetsExact && (sheetList.length || sheetLayouts.length) && sheet === 0) sheet = 1;
+  } catch (e) { sheetList = []; sheetLayouts = []; sheetLabels = []; sheetsExact = false; }
 }
 
 function schedulePoll() {
@@ -648,14 +649,18 @@ function renderPreview() {
       <button class="${which==='after'?'primary':''}" ${hasAfter?'':'disabled'} onclick="which='after';windowStack=[];renderPreview()">After</button>
       <button ${windowStack.length?'':'disabled'} onclick="windowStack.pop();renderPreview()">↩ Back</button>
       ${current.fmt==='pdf' ? `<span style="margin-left:8px">Page <input type="text" id="pg" value="${page}" style="width:56px" onchange="page=parseInt(this.value)||1;windowStack=[];renderPreview()"> of ${(current.stages?.inventory||{}).pages||'?'}</span>` : ''}
-      ${current.fmt!=='pdf' && (sheetList.length>1 || (sheetsExact && sheetList.length===1)) ? `<span style="margin-left:8px">Sheet <select onchange="sheet=parseInt(this.value);windowStack=[];renderPreview()">${['<option value="0"'+(sheet===0?' selected':'')+'>whole drawing</option>'].concat(sheetList.map((b,i)=>`<option value="${i+1}" ${sheet===i+1?'selected':''}>${sheetLabels[i] ? esc(sheetLabels[i]) : (i+1)+' of '+sheetList.length}</option>`)).join('')}</select></span>` : ''}
+      ${current.fmt!=='pdf' && sheetLayouts.length ? `<span style="margin-left:8px">Sheet <select onchange="sheet=parseInt(this.value);windowStack=[];renderPreview()">${sheetLayouts.map((n,i)=>`<option value="${i+1}" ${sheet===i+1?'selected':''}>${esc(n)}</option>`).join('')}</select></span>` : ''}
+      ${current.fmt!=='pdf' && !sheetLayouts.length && (sheetList.length>1 || (sheetsExact && sheetList.length===1)) ? `<span style="margin-left:8px">Sheet <select onchange="sheet=parseInt(this.value);windowStack=[];renderPreview()">${['<option value="0"'+(sheet===0?' selected':'')+'>whole drawing</option>'].concat(sheetList.map((b,i)=>`<option value="${i+1}" ${sheet===i+1?'selected':''}>${sheetLabels[i] ? esc(sheetLabels[i]) : (i+1)+' of '+sheetList.length}</option>`)).join('')}</select></span>` : ''}
       <span class="count">Drag a rectangle to zoom into that area. Large sheets take up to a minute to draw.${hint}</span>
     </div>
     <div class="preview" id="pv"><div class="busy"><div class="spin"></div><div id="pvmsg">Drawing… (a big sheet can take a minute or two the first time)</div></div></div>`;
   const t0 = Date.now(); const tick = setInterval(() => { const m = $('#pvmsg'); if (!m) return clearInterval(tick); m.textContent = `Drawing… ${Math.round((Date.now()-t0)/1000)} s (a big sheet can take a minute or two the first time; after that it is instant)`; }, 1000);
   let win = windowStack[windowStack.length-1];
-  if (!win && current.fmt!=='pdf' && sheet>0 && sheetList[sheet-1]) win = sheetList[sheet-1];
-  const url = `/api/jobs/${current.id}/preview/${which}?page=${page}&v=${previewVersion}` + (win ? `&x0=${win[0]}&y0=${win[1]}&x1=${win[2]}&y1=${win[3]}` : '');
+  if (!win && current.fmt!=='pdf' && !sheetLayouts.length && sheet>0 && sheetList[sheet-1]) win = sheetList[sheet-1];
+  const lay = sheetLayouts.length && sheet > 0 ? sheetLayouts[sheet-1] : null;
+  const url = `/api/jobs/${current.id}/preview/${which}?page=${page}&v=${previewVersion}`
+    + (lay ? `&layout=${encodeURIComponent(lay)}` : '')
+    + (win ? `&x0=${win[0]}&y0=${win[1]}&x1=${win[2]}&y1=${win[3]}` : '');
   // Every ending has to stop the spinner and say something. A spinner that
   // never stops is the one outcome a person cannot act on: it looks the same
   // whether the sheet is still drawing, the picture failed to decode, or the

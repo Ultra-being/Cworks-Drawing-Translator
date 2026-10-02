@@ -249,7 +249,7 @@ def _rules(doc: Drawing, vertical: bool, limit: int) -> dict[str, list[list[floa
     # nothing stops it running into the box beside it.
     spaces = [("model", doc.modelspace())] + [(f"paper:{lo.name}", lo) for lo in doc.layouts if lo.name != "Model"]
     spaces += [(f"block:{b.name}", b) for b in doc.blocks
-               if not b.name.startswith(("*Model_Space", "*Paper_Space"))]
+               if not is_space_block(b.name)]
 
     def straight(ws: list[list[float]], x0: float, y0: float, x1: float, y1: float) -> None:
         along = (y0, y1) if vertical else (x0, x1)      # the way the line runs
@@ -382,6 +382,20 @@ def set_table_cell(table, idx: int, new: str) -> str | None:
 
 
 W_CODE = re.compile(r"\\W([\d.]+);")
+
+
+def is_space_block(name: str) -> bool:
+    """True for the blocks that are model or paper space themselves.
+
+    Both are walked already as layouts, so walking them again as blocks counts
+    their contents twice. The name's case is the drawing's choice -- AutoCAD
+    writes *Model_Space, older exports write *MODEL_SPACE or $MODEL_SPACE --
+    so it is folded before comparing. A case-sensitive test here read model
+    space twice on any drawing that spelled it in capitals, and every added
+    line then came back from verify as geometry that had changed.
+    """
+    n = name.upper().lstrip("*$")
+    return n.startswith(("MODEL_SPACE", "PAPER_SPACE"))
 
 
 def mtext_width_factor(raw: str) -> float:
@@ -546,7 +560,7 @@ def inventory(doc: Drawing) -> list[TextItem]:
         # drawn copy of itself in a *T block, and that copy is what is put on
         # the paper. Translating the table's cells and not its drawn copy
         # leaves the sheet in the language it started in.
-        if block.name.startswith(("*Model_Space", "*Paper_Space")):
+        if is_space_block(block.name):
             continue
         _walk(doc, block, f"block:{block.name}", out)
     return out

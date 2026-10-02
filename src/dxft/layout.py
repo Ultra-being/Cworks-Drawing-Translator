@@ -105,11 +105,21 @@ def fits_like_a_line(it: TextItem) -> bool:
     MTEXT usually wraps inside its own box, so it grows downward and needs no
     width measuring. But drafters routinely place MTEXT with no box at all
     (width 0), and then it behaves exactly like a TEXT entity: one line, no
-    wrapping, straight into whatever is beside it. Those must be measured.
+    wrapping, straight into whatever is beside it.
+
+    A box holding a single line is drawn as one line too. Its box width is
+    only a promise to wrap somewhere far to the right, and a drafter who
+    copied one MTEXT across a row of narrow cells leaves that promise set to
+    the width of the whole row. The source language is short enough not to
+    reach it; a longer translation wraps at the box and crosses the cell wall
+    on the way. So the single-line ones are measured as well, and the box is
+    held to the room actually there (see prepare._box_clamp).
     """
     if it.kind in ("TEXT", "ATTRIB", "PDF"):
         return True
-    return it.kind == "MTEXT" and not it.box_width
+    if it.kind != "MTEXT":
+        return False
+    return not it.box_width or "\n" not in (it.plain or "")
 
 
 def _flat(it: TextItem) -> bool:
@@ -257,7 +267,7 @@ def _line_candidate(it: TextItem) -> bool:
     if not _flat(it) or it.halign != 0:
         return False
     if it.kind == "MTEXT":
-        return not MTEXT_RICH.search(it.raw)
+        return not it.box_width and not MTEXT_RICH.search(it.raw)
     return it.kind in ("TEXT", "PDF")
 
 

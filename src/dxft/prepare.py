@@ -68,6 +68,7 @@ class Segment:
     caps_max: list[float] = field(default_factory=list)         # the same, out to whatever stands to the right
     line_caps_max: list[list[float]] = field(default_factory=list)
     spare: list[int] = field(default_factory=list)   # per instance: further lines the space below would take
+    boxes: list[float] = field(default_factory=list)  # per instance: MTEXT box width to force, in drawing units (0 = leave it)
     lines: int = 1         # lines available per instance (paragraphs > 1)
     budget_chars: int = 0  # length hint for the model, 0 = no constraint known
 
@@ -242,6 +243,7 @@ def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list
         seg.line_caps_max.append(per_line_max)
         last = group[-1]
         seg.spare.append(layout.spare_lines(last, clear.get(last.handle, 0.0)) if cap > 0 else 0)
+        seg.boxes.append(_box_clamp(group, avail))
         seg.lines = max(seg.lines, len(group))
         for t in group:
             seg.handles.append(t.handle)
@@ -258,6 +260,28 @@ def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list
             # ems -> characters at ~0.6 em each, plus the 10% that narrowing can absorb
             seg.budget_chars = int(min(known) * seg.lines / 0.6 * 1.1)
     return list(by_source.values()), handle_map, skipped
+
+
+def _box_clamp(group: list[TextItem], avail: dict[str, float]) -> float:
+    """The width to force on an MTEXT whose own box reaches past the cell it
+    sits in, in drawing units. 0 leaves the box as the drafter set it.
+
+    Shortening and narrowing the translation is the first line of defence,
+    but neither can be relied on to be enough. Holding the box to the room
+    that is really there makes the last line of defence wrapping, downwards,
+    inside the cell -- never through the wall into the column beside it.
+    """
+    it = group[0]
+    if len(group) > 1 or it.kind != "MTEXT" or not it.box_width:
+        return 0.0
+    # Only a measured wall justifies moving the box. Holding it to the source's
+    # own footprint instead was tried and is worse: 66 strings on the Honmachi
+    # set then wrapped downwards into whatever was drawn below them, which is
+    # a plainer fault than a box nobody can see reaching too far right.
+    room = avail.get(it.handle)
+    if room is None or it.box_width <= room * 1.02:
+        return 0.0
+    return round(room * SAFETY, 3)
 
 
 def _cap_em(group: list[TextItem], avail: dict[str, float]) -> tuple[float, list[float], float, list[float]]:
@@ -280,7 +304,12 @@ def _cap_em(group: list[TextItem], avail: dict[str, float]) -> tuple[float, list
     line_ems = [layout.em_width(t.plain) for t in group]
     if len(group) == 1:
         if first.handle in avail:
-            cap = round(max(avail[first.handle] * SAFETY / scale, line_ems[0]), 2)
+            room = avail[first.handle] * SAFETY
+            # Where the text wraps is whichever comes first: its own box, or
+            # the cell wall. Aim for that, never past it.
+            if first.kind == "MTEXT" and first.box_width:
+                room = min(room, first.box_width)
+            cap = round(max(room / scale, line_ems[0]), 2)
         else:
             cap = round(line_ems[0] * (2.4 if first.lang in ("ja", "zh") else 1.4), 2)
         return cap, [cap], cap, [cap]

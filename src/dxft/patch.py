@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 import ezdxf
 from ezdxf.document import Drawing
 
-from .inventory import TextItem, load, set_table_cell
+from .inventory import TextItem, load, set_table_cell, is_space_block as inv_is_space_block
 from .layout import wrap_best, _greedy, em_width
 from .inventory import W_CODE
 from .translate import TABLE_GAP, _repad
@@ -43,6 +43,7 @@ class PatchResult:
     overflow: list[str] = field(default_factory=list)  # segment ids that still do not fit
     added_lines: int = 0      # lines written under a cell that could not hold its text on one
     widened_forms: int = 0    # full-width characters put into ASCII so the Latin font can draw them
+    boxed: int = 0            # MTEXT boxes pulled in to the cell they sit in
 
 
 def _font_can_display_ja(doc: Drawing, style_name: str) -> bool:
@@ -158,6 +159,13 @@ def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved
                         e.text = narrow_mtext(own, wf)
                         if abs(wf - 1.0) > 0.01:
                             result.width_factors += 1
+                        # A box set wider than its cell wraps the text through
+                        # the wall. Hold it to the room measured beside it, so
+                        # anything still too long goes downwards instead.
+                        box = seg.boxes[gi] if gi < len(seg.boxes) else 0.0
+                        if box and float(e.dxf.width or 0.0) > box:
+                            e.dxf.width = box
+                            result.boxed += 1
                         ja_style(item)
                         result.patched += 1
                         continue
@@ -357,10 +365,11 @@ class Verification:
 def _all_spaces(doc: Drawing) -> list:
     """Every place an entity can live, each exactly once. Model space and the
     paper layouts are themselves blocks (*Model_Space, *Paper_Space), so a list
-    of layouts plus all blocks counts their contents twice."""
+    of layouts plus all blocks counts their contents twice. The spelling of
+    those names varies by drawing, so inventory.is_space_block folds the case."""
     out = [doc.modelspace()] + [lo for lo in doc.layouts if lo.name != "Model"]
     for b in doc.blocks:
-        if not b.name.startswith(("*Model_Space", "*Paper_Space")):
+        if not inv_is_space_block(b.name):
             out.append(b)
     return out
 

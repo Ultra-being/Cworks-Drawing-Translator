@@ -451,6 +451,25 @@ function renderBusy() {
 }
 const elapsedText = (secs) => secs == null ? '' : secs < 60 ? `${secs}s` : `${Math.floor(secs/60)}m ${secs%60}s`;
 
+// Not every missing file is worth chasing. One named ".\Scans\x.pdf" sits
+// beside the drawing and whoever sent it can send that too. One named
+// "C:\Users\someone\Desktop\..." points at a machine that is not theirs and
+// probably has not existed for years -- it is a dead link left in the file,
+// and listing thirty of them as things to ask for is worse than useless.
+function linksNotice(links) {
+  const far = links.filter(f => /^([A-Za-z]:|\\\\)/.test(f));
+  const near = links.filter(f => !/^([A-Za-z]:|\\\\)/.test(f));
+  const list = fs => `<ul style="margin:4px 0 0 18px;padding:0">${fs.map(f =>
+      `<li style="font-family:ui-monospace,monospace;font-size:12px;word-break:break-all">${esc(f)}</li>`).join('')}</ul>`;
+  return `<div style="background:#fef3c7;border:1px solid #f0c674;border-radius:6px;padding:9px 12px;margin:10px 0;font-size:13px">
+    This drawing <b>points at ${links.length} file${links.length===1?'':'s'} it does not contain</b> — pictures or drawings placed into it by reference.
+    They are blank here and in the drawing you download, and a sheet may show the file name in large letters instead.
+    That name is a path, not a label, so it is left untranslated.
+    ${near.length ? `<div style="margin-top:8px"><b>${near.length} sit${near.length===1?'s':''} beside the drawing</b> — worth asking the sender for:${list(near)}</div>` : ''}
+    ${far.length ? `<details style="margin-top:8px"><summary style="cursor:pointer"><b>${far.length} point${far.length===1?'s':''} at someone else's machine</b> — almost certainly dead links left in the file, not worth chasing</summary>${list(far)}</details>` : ''}
+  </div>`;
+}
+
 function renderHeader() {
   const s = current.stages || {}, run = current.running;
   // A running stage shows how long it has been going. "Translate… 3m 20s" is a
@@ -476,12 +495,7 @@ function renderHeader() {
       ${st('review','4 Review', rows.length ? `${rows.filter(r=>r.approved).length}/${rows.length} approved` : '')}
       ${st('patch','5 Patch & verify', pa ? `${pa.patched} entities${pa.narrowed?', '+pa.narrowed+' narrowed':''}${pa.overflow?', '+pa.overflow+' overflow':''} · geometry ${pa.verified?'unchanged':'CHANGED'}` : '')}
     </div>
-    ${inv?.links?.length ? `<div style="background:#fef3c7;border:1px solid #f0c674;border-radius:6px;padding:9px 12px;margin:10px 0;font-size:13px">
-      This drawing <b>points at ${inv.links.length} file${inv.links.length===1?'':'s'} it does not contain</b> — a picture or another drawing placed into it.
-      They will be blank in the preview and in the drawing you download, and the sheet may show the file name in large letters instead.
-      That name is a path, not a label, so it is left untranslated. Ask for these from whoever sent the drawing:
-      <ul style="margin:6px 0 0 18px;padding:0">${inv.links.map(f => `<li style="font-family:ui-monospace,monospace">${esc(f)}</li>`).join('')}</ul>
-    </div>` : ''}
+    ${inv?.links?.length ? linksNotice(inv.links) : ''}
     <div class="actions">
       <button class="primary${!tr && pr && !busy ? ' go' : ''}" ${busy||!pr?'disabled':''} onclick="act('translate')">${tr?'Re-translate':'Translate'}</button>
       <button ${busy||!tr?'disabled':''} onclick="act('approve-all')">Approve all clean</button>

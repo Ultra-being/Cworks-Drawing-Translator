@@ -541,7 +541,12 @@ def inventory(doc: Drawing) -> list[TextItem]:
         if layout.name != "Model":
             _walk(doc, layout, f"paper:{layout.name}", out)
     for block in doc.blocks:
-        if block.name.startswith("*"):  # anonymous / layout blocks
+        # Model and paper space are blocks too, and have just been walked as
+        # layouts. Every other anonymous block is walked: a table keeps a
+        # drawn copy of itself in a *T block, and that copy is what is put on
+        # the paper. Translating the table's cells and not its drawn copy
+        # leaves the sheet in the language it started in.
+        if block.name.startswith(("*Model_Space", "*Paper_Space")):
             continue
         _walk(doc, block, f"block:{block.name}", out)
     return out

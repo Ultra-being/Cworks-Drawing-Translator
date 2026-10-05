@@ -639,6 +639,13 @@ async function setRow(id, body) {
 }
 
 // ── preview ──
+function gotoPage(n) {
+  const np = (current.stages?.inventory||{}).pages || 1;
+  page = Math.max(1, Math.min(isNaN(n) ? 1 : n, np));
+  windowStack = [];
+  renderPreview();
+}
+
 function renderPreview() {
   const hasAfter = !!(current.stages||{}).patch;
   if (which === 'after' && !hasAfter) which = 'before';
@@ -648,7 +655,15 @@ function renderPreview() {
       <button class="${which==='before'?'primary':''}" onclick="which='before';windowStack=[];renderPreview()">Before</button>
       <button class="${which==='after'?'primary':''}" ${hasAfter?'':'disabled'} onclick="which='after';windowStack=[];renderPreview()">After</button>
       <button ${windowStack.length?'':'disabled'} onclick="windowStack.pop();renderPreview()">↩ Back</button>
-      ${current.fmt==='pdf' ? `<span style="margin-left:8px">Page <input type="text" id="pg" value="${page}" style="width:56px" onchange="page=parseInt(this.value)||1;windowStack=[];renderPreview()"> of ${(current.stages?.inventory||{}).pages||'?'}</span>` : ''}
+      ${current.fmt==='pdf' ? (() => { const np = (current.stages?.inventory||{}).pages || 0;
+        // A PDF's pages are its sheets. They got a bare box to type a number
+        // into, so a 34-page set looked like a one-page document; they get the
+        // same list and arrows the drawings have.
+        return np > 1
+          ? `<span style="margin-left:8px">Page <button ${page<=1?'disabled':''} onclick="gotoPage(${page-1})" title="Previous page">‹</button>
+             <select onchange="gotoPage(parseInt(this.value))">${Array.from({length:np},(_,i)=>`<option value="${i+1}" ${page===i+1?'selected':''}>${i+1} of ${np}</option>`).join('')}</select>
+             <button ${page>=np?'disabled':''} onclick="gotoPage(${page+1})" title="Next page">›</button></span>`
+          : `<span style="margin-left:8px">Page <input type="text" id="pg" value="${page}" style="width:56px" onchange="gotoPage(parseInt(this.value))"> of ${np||'?'}</span>`; })() : ''}
       ${current.fmt!=='pdf' && sheetLayouts.length ? `<span style="margin-left:8px">Sheet <select onchange="sheet=parseInt(this.value);windowStack=[];renderPreview()">${sheetLayouts.map((n,i)=>`<option value="${i+1}" ${sheet===i+1?'selected':''}>${esc(n)}</option>`).join('')}</select></span>` : ''}
       ${current.fmt!=='pdf' && !sheetLayouts.length && (sheetList.length>1 || (sheetsExact && sheetList.length===1)) ? `<span style="margin-left:8px">Sheet <select onchange="sheet=parseInt(this.value);windowStack=[];renderPreview()">${['<option value="0"'+(sheet===0?' selected':'')+'>whole drawing</option>'].concat(sheetList.map((b,i)=>`<option value="${i+1}" ${sheet===i+1?'selected':''}>${sheetLabels[i] ? esc(sheetLabels[i]) : (i+1)+' of '+sheetList.length}</option>`)).join('')}</select></span>` : ''}
       <span class="count">Drag a rectangle to zoom into that area. Large sheets take up to a minute to draw.${hint}</span>

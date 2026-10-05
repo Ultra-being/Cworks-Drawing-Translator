@@ -126,6 +126,53 @@ def _span_text(sp: dict, maps: dict[str, list[dict[int, int]]], cache: dict) -> 
     return best.replace("\xa0", " ").replace("\xad", "–")
 
 
+def _rows(sp: dict) -> list[dict]:
+    r"""One text-trace span, split into the separate lines it really draws.
+
+    A span is one text-showing operation in the PDF, and PyMuPDF reports it
+    as one string. CAD plotters do not honour that as one line: they batch a
+    whole table column, sometimes a whole sheet of labels, into a single
+    operation and place each glyph by hand. One span on the drawing list of
+    a Tokyo refurbishment held 101 glyphs on 55 different baselines -- 55
+    table cells read as one string, written back as one run, and smeared
+    across the page with every other cell left blank.
+
+    So the glyph origins decide, not the operation. A new line starts where
+    the baseline moves across, or where the text jumps backwards along it.
+    Rotated text is handled by measuring along the span's own direction
+    rather than the page's.
+    """
+    chars = sp.get("chars") or []
+    if len(chars) < 2:
+        return [sp]
+    dx, dy = sp["dir"]
+    size = sp["size"] or 1.0
+    step, jump = 0.3 * size, 0.5 * size
+
+    def along(o): return dx * o[0] + dy * o[1]
+    def across(o): return -dy * o[0] + dx * o[1]
+
+    runs, cur = [], [chars[0]]
+    base, last = across(chars[0][2]), along(chars[0][2])
+    for c in chars[1:]:
+        o = c[2]
+        if abs(across(o) - base) > step or along(o) < last - jump:
+            runs.append(cur)
+            cur, base = [], across(o)
+        cur.append(c)
+        last = along(o)
+    runs.append(cur)
+    if len(runs) == 1:
+        return [sp]
+
+    out = []
+    for run in runs:
+        xs = [b for c in run for b in (c[3][0], c[3][2])]
+        ys = [b for c in run for b in (c[3][1], c[3][3])]
+        out.append({**sp, "chars": run, "bbox": (min(xs), min(ys), max(xs), max(ys))})
+    return out
+
+
 def inventory(doc) -> tuple[list[TextItem], dict[str, list[list[float]]], dict[str, dict]]:
     """Returns (items, walls per page, line geometry per handle).
 
@@ -143,15 +190,16 @@ def inventory(doc) -> tuple[list[TextItem], dict[str, list[list[float]]], dict[s
         maps = _glyph_maps(doc, page)
         cache: dict = {}
         spans = []
-        for sp in page.get_texttrace():
-            if sp.get("type", 0) not in (0, 1, 2):   # 3 = invisible/clipped text
+        for whole in page.get_texttrace():
+            if whole.get("type", 0) not in (0, 1, 2):   # 3 = invisible/clipped text
                 continue
-            text = _span_text(sp, maps, cache)
-            if not text.strip():
-                continue
-            x0, y0, x1, y1 = sp["bbox"]
-            spans.append({"text": text, "bbox": [x0, y0, x1, y1], "size": sp["size"], "dir": tuple(sp["dir"]),
-                          "font": sp["font"], "space": sp.get("spacewidth", 0.25) * sp["size"]})
+            for sp in _rows(whole):
+                text = _span_text(sp, maps, cache)
+                if not text.strip():
+                    continue
+                x0, y0, x1, y1 = sp["bbox"]
+                spans.append({"text": text, "bbox": [x0, y0, x1, y1], "size": sp["size"], "dir": tuple(sp["dir"]),
+                              "font": sp["font"], "space": sp.get("spacewidth", 0.25) * sp["size"]})
         # Grouping: PyMuPDF's own line detection (dict mode) decides which
         # spans form a line; each decoded trace span joins the dict line that
         # contains its centre. Spans that match no line stand alone.

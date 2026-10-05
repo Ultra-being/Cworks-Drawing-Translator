@@ -190,6 +190,26 @@ then marked in the page list like any other, and the report says:
 That is how something you noticed reaches whoever does the editing. Press the
 button again and clear the note to remove the flag.
 
+### Getting the notes to the engineers
+
+The engineers get the PDF, not the app. So the notes go into the PDF.
+
+**Download PDF with notes** gives you the same translated drawing with:
+
+- a yellow sticky note in the corner of every page worth a look, holding the
+  note you wrote and anything the app flagged
+- a bookmark for each of those pages, so they can be stepped through
+- a summary sheet at the end listing every one
+
+Any PDF reader shows these. In Acrobat or Preview the comments panel lists
+them all and clicking one jumps to that page, which is the quickest way for
+someone to work through them.
+
+**Download PDF** stays exactly as it was: the clean, verified drawing with no
+notes on it. Send that one to the client. Send the one with notes to whoever
+is doing the editing. Page numbers are the same in both, because the summary
+sheet is added at the end rather than the front.
+
 ### What the report is for
 
 Press **Report** and read the top. It answers one question: is this ready to

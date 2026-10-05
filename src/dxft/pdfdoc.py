@@ -393,3 +393,125 @@ def fingerprint(doc) -> tuple[int, str]:
             h.update(str(dr.get("rect")).encode())
             h.update(str(len(dr.get("items", []))).encode())
     return n, h.hexdigest()
+
+
+def annotate(src: str, out: str, notes: dict[int, list[str]], summary: list[str]) -> int:
+    """A copy of the translated PDF carrying the review notes, for whoever
+    does the editing.
+
+    What the reviewer found lived in the app and in a markdown report, and
+    what gets handed on is the PDF. So it goes in the PDF: a sticky note on
+    each page that wants a look, a bookmark per page so they can be stepped
+    through, and a summary sheet at the end.
+
+    This is a marked-up copy, built on demand. The verified output.pdf is not
+    touched, and stays the file to send a client: each sticky note draws its
+    own icon, which puts two more pieces of line art on that page, so the
+    marked copy no longer matches the fingerprint the drawing was verified
+    against. That is the point of it -- the notes are meant to be seen -- but
+    it is why the two files stay separate.
+
+    Nothing already on the sheet moves. The icons sit in the top right corner
+    and the summary goes last rather than first, because page numbers in a
+    drawing set get quoted and must not shift.
+    """
+    import pymupdf
+    doc = open_pdf(src)
+    added = 0
+    for pno in sorted(notes):
+        if not 1 <= pno <= len(doc):
+            continue
+        page = doc[pno - 1]
+        a = page.add_text_annot((page.rect.x1 - 28, page.rect.y0 + 28), "\n".join(notes[pno]), icon="Note")
+        a.set_info(title="Cworks translation check")
+        a.set_colors(stroke=(1, 0.8, 0.2))
+        a.update()
+        added += 1
+
+    # Keep whatever bookmarks the drawing came with; ours go after them.
+    try:
+        toc = doc.get_toc() or []
+        doc.set_toc(toc + [[1, f"Check: page {p}", p] for p in sorted(notes) if 1 <= p <= len(doc)])
+    except Exception:
+        pass
+
+    if summary:
+        r = doc[-1].rect
+        page = doc.new_page(width=r.width, height=r.height)
+        _summary_sheet(page, summary, r.width - 80)
+    doc.save(out, garbage=3, deflate=True)
+    return added
+
+
+def _has_cjk(line: str) -> bool:
+    return any("\u3040" <= c <= "\u30ff" or "\u4e00" <= c <= "\u9fff" or "\uff00" <= c <= "\uffef" for c in line)
+
+
+def _runs(text: str) -> list[tuple[str, bool]]:
+    """The text split into stretches that are Japanese and stretches that are
+    not, so each can be drawn in a font that suits it. One font for the whole
+    line puts every Latin letter on a full-width body, which reads as
+    s p a c e d   o u t   n o n s e n s e."""
+    out: list[tuple[str, bool]] = []
+    for ch in text:
+        cjk = _has_cjk(ch)
+        if out and out[-1][1] == cjk:
+            out[-1] = (out[-1][0] + ch, cjk)
+        else:
+            out.append((ch, cjk))
+    return out
+
+
+def _run_width(text: str, fs: float, bold: bool = False) -> float:
+    import pymupdf
+    runs = _runs(text)
+    return sum(pymupdf.get_text_length(t, fontname="japan" if c else ("hebo" if bold else "helv"), fontsize=fs)
+               for t, c in runs) + fs * 0.1 * max(len(runs) - 1, 0)
+
+
+def _draw_runs(page, x: float, y: float, text: str, fs: float, bold: bool = False) -> None:
+    import pymupdf
+    runs = _runs(text)
+    for i, (t, c) in enumerate(runs):
+        font = "japan" if c else ("hebo" if bold else "helv")
+        page.insert_text((x, y), t, fontsize=fs, fontname=font)
+        x += pymupdf.get_text_length(t, fontname=font, fontsize=fs)
+        # A hair of air between scripts. It does not fully cure a Latin bracket
+        # running straight into a kanji -- the CJK glyph is drawn a little left
+        # of the pen and padding does not move it -- but the line stays legible,
+        # and in a real job these boundaries are rare: a string is either
+        # translated whole or left in the original whole.
+        if i + 1 < len(runs) and runs[i + 1][1] != c:
+            x += fs * 0.1
+
+
+def _summary_sheet(page, lines: list[str], width: float, size: float = 10.5) -> None:
+    """Draw the summary sheet appended to the handed-over PDF.
+
+    Each line is wrapped by measuring it in the fonts it will actually be
+    drawn in, and drawn run by run so Japanese and English each get a font
+    that suits them.
+    """
+    x, y = 40.0, 56.0
+    for i, line in enumerate(lines):
+        bold = i == 0
+        fs = size + 2 if bold else size
+        indent = len(line) - len(line.lstrip())
+        body = line.strip()
+        if not body:
+            y += fs * 0.8
+            continue
+        lead = x + indent * fs * 0.4
+        room = width - (lead - x)
+        cur = ""
+        for w in body.split(" "):
+            trial = f"{cur} {w}".strip()
+            if cur and _run_width(trial, fs, bold) > room:
+                _draw_runs(page, lead, y, cur, fs, bold)
+                y += fs * 1.6
+                cur = w
+            else:
+                cur = trial
+        if cur:
+            _draw_runs(page, lead, y, cur, fs, bold)
+            y += fs * 1.6

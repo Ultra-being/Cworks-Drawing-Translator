@@ -446,6 +446,32 @@ class Job:
         self._stage_done("patch", **info)
         return info
 
+    def notes_by_page(self) -> tuple[dict[int, list[str]], list[str]]:
+        """What to put in the handed-over PDF: notes per page, and the summary
+        sheet. Same rule the page list and the report use, so the three agree."""
+        rows = self.review_table()
+        over = [r["id"] for r in rows if r["fit"] == "overflow"]
+        todo = _to_check(rows, over, self.meta.get("flags") or {})
+        notes: dict[int, list[str]] = {}
+        summary = [f"{self.meta['name']} — pages to look at", "",
+                   "Everything is written into the drawing. These are the places worth a",
+                   "glance before this goes out, and what to expect on each.", ""]
+        for place in sorted(todo, key=lambda q: (_place_order(q), q)):
+            m = re.match(r"^page (\d+)$", place)
+            for kind, strings in sorted(todo[place].items()):
+                if kind == "flagged by the reviewer":
+                    line = f"Flagged by the reviewer: {'; '.join(strings)}"
+                else:
+                    shown = ", ".join(f'"{x}"' for x in strings[:4])
+                    more = f" and {len(strings) - 4} more" if len(strings) > 4 else ""
+                    line = f"{len(strings)} {kind}: {shown}{more}"
+                summary.append(f"  {place} — {line}")
+                if m:
+                    notes.setdefault(int(m.group(1)), []).append(line)
+        if len(summary) == 5:
+            summary = []
+        return notes, summary
+
     def _report(self, res: pt.PatchResult, ver: pt.Verification, rows: list[dict]) -> str:
         """The report someone reads before sending the drawing on.
 

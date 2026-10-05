@@ -21,6 +21,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from .pipeline import Job, JOBS, Memory, pricing, cost_usd
+from . import pdfdoc
 from . import preview
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -497,8 +498,21 @@ def remember(job_id: str):
 def download(job_id: str, name: str):
     job = _job(job_id)
     fmt = job.fmt
-    if name not in ("output", "report.md", "input"):
+    if name not in ("output", "output-notes", "report.md", "input"):
         raise HTTPException(404)
+    if name == "output-notes":
+        # Built fresh on each download, so it carries the flags as they stand
+        # and output.pdf is left exactly as it was verified.
+        if fmt != "pdf":
+            raise HTTPException(400, "notes can only be written into a PDF")
+        if not job.output_path.exists():
+            raise HTTPException(404, "not produced yet")
+        notes, summary = job.notes_by_page()
+        if not notes:
+            raise HTTPException(400, "nothing is flagged on this job")
+        marked = job.dir / "output_notes.pdf"
+        pdfdoc.annotate(str(job.output_path), str(marked), notes, summary)
+        return FileResponse(str(marked), filename=f"{Path(job.meta['name']).stem}_{job.meta['target'].upper()}_notes.pdf")
     p = {"output": job.output_path, "input": job.input_path, "report.md": job.dir / "report.md"}[name]
     if not p.exists():
         raise HTTPException(404, "not produced yet")

@@ -502,6 +502,9 @@ function renderHeader() {
       <button ${busy||!tr?'disabled':''} onclick="act('approve-all')">Approve all clean</button>
       <button class="primary" ${busy||!tr?'disabled':''} onclick="act('patch')">${pa?'Re-patch':'Patch & verify'}</button>
       <button ${pa?'':'disabled'} onclick="saveAs('output')">Download ${(current.fmt||'dxf').toUpperCase()}</button>
+      ${current.fmt==='pdf' ? `<button ${pa && Object.keys(pageFlags()).length ? '' : 'disabled'}
+        onclick="saveAs('output-notes')"
+        title="The same PDF with a sticky note on every page worth a look, a bookmark for each, and a summary sheet at the end">Download PDF with notes</button>` : ''}
       <button ${pa?'':'disabled'} onclick="saveAs('report.md')">Report</button>
       <button ${busy||!pa?'disabled':''} onclick="act('remember')" title="Reuse these approved translations on later sheets">Store in memory</button>
       <button ${busy?'disabled':''} onclick="act('reread')"
@@ -558,7 +561,9 @@ async function saveAs(name) {
   // Chrome/Edge: a proper "Save as" dialog so the user chooses the folder. Others: normal download.
   const url = `/api/jobs/${current.id}/download/${name}`;
   const stem = current.name.replace(/\.[^.]+$/, '');
-  const filename = name === 'output' ? `${stem}_${current.target.toUpperCase()}.${current.fmt||'dxf'}` : `${stem}_report.md`;
+  const filename = name === 'output' ? `${stem}_${current.target.toUpperCase()}.${current.fmt||'dxf'}`
+                 : name === 'output-notes' ? `${stem}_${current.target.toUpperCase()}_notes.pdf`
+                 : `${stem}_report.md`;
   if (!window.showSaveFilePicker) { const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); return; }
   try {
     const ext = '.' + filename.split('.').pop();

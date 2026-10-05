@@ -115,45 +115,39 @@ def _r(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _by_place(rows: list[dict], overflow: list[str]) -> list[str]:
-    """What is left to look at, gathered by where it is.
+def _to_check(rows: list[dict], overflow: list[str], flags: dict | None = None) -> dict[str, dict[str, list[str]]]:
+    """place -> what is worth a look there -> the strings themselves.
 
-    The rest of the report counts things. This says where to go. Whoever
-    takes the drawing on does the touching-up in DWG, and a list of segment
-    ids tells them nothing -- a list of pages tells them exactly which sheets
-    to open and what to expect on each.
+    A count tells someone there is a problem; the string tells them what to
+    look for. Both, per page, so the list can be read straight off the paper
+    without opening the job.
     """
     over = set(overflow)
-    todo: dict[str, dict[str, int]] = {}
+    todo: dict[str, dict[str, list[str]]] = {}
+    # A reviewer who has looked at the sheet knows things no measurement does.
+    # Their flag sits beside the measured ones and reads as what it is.
+    for place, note in (flags or {}).items():
+        todo.setdefault(place, {}).setdefault("flagged by the reviewer", []).append(str(note).strip() or "no note given")
     for r in rows:
         kinds = []
         if r["id"] in over:
-            kinds.append("too long for the space")
+            kinds.append("wider than the space")
         if not r["approved"]:
-            kinds.append("not approved")
+            kinds.append("not approved, so left in the original language")
         elif not r["ok"]:
             kinds.append("the model was unsure")
         if not kinds:
             continue
+        shown = (r["display"] or r["source"]).strip().replace("\n", " ")[:40]
         for place in (r["places"] or ["somewhere not recorded"]):
             for k in kinds:
-                todo.setdefault(place, {})
-                todo[place][k] = todo[place].get(k, 0) + 1
-    if not todo:
-        return ["## Pages to look at", "", "Nothing outstanding: every string is approved and fits.", ""]
+                todo.setdefault(place, {}).setdefault(k, []).append(shown)
+    return todo
 
-    def order(p: str):
-        bits = p.split()
-        return (0, int(bits[1])) if p.startswith("page ") and bits[1].isdigit() else (1, 0)
 
-    out = ["## Pages to look at", "",
-           "Everything below is written into the drawing. These are the places worth",
-           "a glance before it goes out, and what to expect on each.", ""]
-    for place in sorted(todo, key=lambda p: (order(p), p)):
-        what = ", ".join(f"{n} {k}" for k, n in sorted(todo[place].items()))
-        out.append(f"- **{place}** — {what}")
-    out.append("")
-    return out
+def _place_order(p: str):
+    bits = p.split()
+    return (0, int(bits[1])) if p.startswith("page ") and len(bits) > 1 and bits[1].isdigit() else (1, 0)
 
 
 PAGE_HANDLE = re.compile(r"^p(\d+):")
@@ -453,45 +447,103 @@ class Job:
         return info
 
     def _report(self, res: pt.PatchResult, ver: pt.Verification, rows: list[dict]) -> str:
+        """The report someone reads before sending the drawing on.
+
+        It used to open with a column of counters -- entities patched, ASCII
+        forms, line-work fingerprints -- which are my numbers, not theirs, and
+        buried the one question they have under them. It now answers that
+        question first, says which pages to look at and what to look for, and
+        keeps the engineering at the bottom where it is still there when a
+        fault needs chasing.
+        """
         m = self.meta
         t = _r(self.dir / "translations.json")
+        sheet = "page" if self.fmt == "pdf" else "sheet"
+        pages = (m.get("stages", {}).get("inventory", {}) or {}).get("pages")
+        todo = _to_check(rows, res.overflow, m.get("flags") or {})
+        unapproved = [r for r in rows if not r["approved"]]
+        links = (m.get("stages", {}).get("inventory", {}) or {}).get("links") or []
+
+        if not ver.ok:
+            verdict = ["**Do not send this on yet.** The check that the drawing itself was not altered",
+                       "did not pass, which should never happen. Send this report to Allan.",
+                       *[f"- {p}" for p in ver.problems]]
+        elif not todo:
+            verdict = [f"**Ready to send.** Every string was translated and written in, and the drawing",
+                       "itself is untouched -- only the text differs from the original."]
+        else:
+            n = len(todo)
+            verdict = [f"**Ready to send, with {n} {sheet}{'' if n == 1 else 's'} worth a glance first.**",
+                       "",
+                       "Nothing is missing: all the text is in the drawing. What is listed below either",
+                       f"runs wider than the space it was given, or nobody approved it. Whoever takes this",
+                       "on can fix any of it in DWG in a few seconds, once they know where to look."]
+
         lines = [
-            f"# Translation report: {m['name']}",
+            f"# {m['name']}",
             "",
-            f"Source {m['source']} to target {m['target']}. Model {t.get('model')}.",
+            f"{m['source']} to {m['target']}"
+            + (f" · {pages} pages" if pages else "")
+            + f" · {time.strftime('%d %B %Y')}",
             "",
-            "## Result",
-            f"- Unique strings: {len(rows)}",
-            f"- Approved and written: {sum(1 for r in rows if r['approved'])}",
-            f"- Entities patched: {res.patched}",
-            f"- Left untranslated (not approved or needs a human): {sum(1 for r in rows if not r['approved'])}",
-            f"- Entities narrowed to fit: {res.width_factors}",
-            f"- Lines added under a cell too narrow for its text: {res.added_lines}",
-            f"- Full-width characters put into ASCII for the Latin font: {res.widened_forms}",
-            f"- Text boxes pulled in to the cell they sit in: {res.boxed}",
-            f"- Still overflowing (shorten these): {len(res.overflow)}",
+            *verdict,
+            "",
+        ]
+
+        if todo:
+            lines += [f"## {sheet.capitalize()}s to look at", ""]
+            for place in sorted(todo, key=lambda q: (_place_order(q), q)):
+                for kind, strings in sorted(todo[place].items()):
+                    if kind == "flagged by the reviewer":
+                        lines.append(f"- **{place}** — flagged by the reviewer: {'; '.join(strings)}")
+                        continue
+                    shown = ", ".join(f'"{x}"' for x in strings[:4])
+                    more = f" and {len(strings) - 4} more" if len(strings) > 4 else ""
+                    lines.append(f"- **{place}** — {len(strings)} {kind}: {shown}{more}")
+            lines.append("")
+
+        if links:
+            lines += ["## Files this drawing points at but does not contain", "",
+                      "A picture or another drawing was placed into this one by reference. It is not",
+                      "inside the file, so it is blank here and its file name may be drawn across the",
+                      "sheet instead. That name is a path, not a label, and is left untranslated.",
+                      "Ask the sender for these:", "",
+                      *[f"- `{f}`" for f in links], ""]
+
+        lines += [
+            "## What was done", "",
+            f"- {len(rows)} different strings translated, written into {res.patched} places in the file",
+            f"- {sum(1 for r in rows if r['approved'])} approved"
+            + (f", {len(unapproved)} left in the original language" if unapproved else ""),
+            f"- {res.width_factors} made narrower so they would fit their space",
+            *([f"- {res.added_lines} given an extra line below, where the cell was too narrow"] if res.added_lines else []),
+            *([f"- {res.boxed} text boxes pulled in to the cell they sit in"] if res.boxed else []),
+            *([f"- {res.widened_forms} full-width characters changed to ASCII so the Latin font could draw them"]
+              if res.widened_forms else []),
+            f"- Geometry {'unchanged' if ver.ok else 'CHANGED -- see above'}: nothing was moved, resized or deleted",
+            "",
+            "## If something looks wrong", "",
+            "Open the **Before** view at the same place and compare. Drawings often arrive with",
+            "text already overrunning its own cells, and where the original did it the translation",
+            "will too. If the original was clean and this is not, use **Report a problem**.",
+            "",
+            "## Technical detail", "",
+            f"- Model {t.get('model')}, mode {t.get('mode')}",
+            f"- Entities patched {res.patched}, narrowed {res.width_factors}, lines added {res.added_lines},"
+            f" boxes pulled in {res.boxed}, ASCII forms {res.widened_forms}",
+            f"- Still overflowing after narrowing: {len(res.overflow)}",
             *[f"  - {next((r['place'] for r in rows if r['id'] == i), '') or i}: "
-              f"{next((r['target'][:70] for r in rows if r['id'] == i), '')!r}" for i in res.overflow],
+              f"{next((r['display'][:70] for r in rows if r['id'] == i), '')!r}" for i in res.overflow],
             f"- Text styles changed for the target font: {len(res.style_changes)}",
-            *[f"  - {s}" for s in res.style_changes],
+            *[f"  - {x}" for x in res.style_changes],
+            f"- Verification: geometry unchanged {'yes' if ver.ok else 'NO'};"
+            f" line-work {ver.entities_before} before, {ver.entities_after} after;"
+            f" text {ver.text_before} before, {ver.text_after} after",
+            *[f"  - Problem: {x}" for x in ver.problems],
+            f"- Tokens: input {t.get('usage', {}).get('input', 0)},"
+            f" cache reads {t.get('usage', {}).get('cache_read', 0)},"
+            f" output {t.get('usage', {}).get('output', 0)}",
             "",
-            *(["## Files this drawing points at but does not contain",
-               "A picture or another drawing was placed into this one by reference. It is not in the",
-               "DXF, so it is blank here and its file name may be drawn across the sheet instead. That",
-               "name is a path, not a label, and is left untranslated. Ask the sender for these:",
-               *[f"- `{f}`" for f in (m.get("stages", {}).get("inventory", {}) or {}).get("links", [])],
-               ""] if (m.get("stages", {}).get("inventory", {}) or {}).get("links") else []),
-            *_by_place(rows, res.overflow),
-            "## Verification",
-            f"- Geometry unchanged: {'yes' if ver.ok else 'NO'}",
-            f"- Line-work entities: {ver.entities_before} before, {ver.entities_after} after",
-            f"- Text entities in model space: {ver.text_before} before, {ver.text_after} after",
-            *[f"- Problem: {p}" for p in ver.problems],
-            "",
-            "## Needs a human",
-            *[f"- {r['id']}: {r['source'][:60]!r} ({r['note'] or 'not approved'})" for r in rows if not r['approved']][:50],
-            "",
-            f"## Usage\n- Input tokens {t.get('usage', {}).get('input', 0)}, cache reads {t.get('usage', {}).get('cache_read', 0)}, output tokens {t.get('usage', {}).get('output', 0)}",
         ]
         return "\n".join(lines) + "\n"
 

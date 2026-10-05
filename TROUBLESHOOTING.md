@@ -178,8 +178,26 @@ Three places say so, and they agree with each other:
 - **The report** ends with **Pages to look at**, naming each page and what to
   expect on it. That is the page to send to whoever does the DWG edits.
 
+### Flagging a page yourself
+
+The app marks what it can measure. It cannot see a label sitting over a door
+swing or a note that reads oddly in English. When you spot one, press
+**⚑ Flag this page** above the preview and type what to look at. The page is
+then marked in the page list like any other, and the report says:
+
+> **page 19** — flagged by the reviewer: room name sits over the door swing
+
+That is how something you noticed reaches whoever does the editing. Press the
+button again and clear the note to remove the flag.
+
+### What the report is for
+
+Press **Report** and read the top. It answers one question: is this ready to
+send? Then it lists the pages worth a glance and what to expect on each. That
+top half is the part to forward. The rest is detail for chasing a fault.
+
 A page is marked when something on it is still too long for its space, was
-not approved, or the model was unsure of it. Everything is written into the
+not approved, the model was unsure of it, or you flagged it. Everything is written into the
 drawing either way. These are places worth a glance before it goes out, not
 errors.
 

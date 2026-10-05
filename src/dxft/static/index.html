@@ -668,12 +668,40 @@ async function setRow(id, body) {
 }
 
 // ── preview ──
+function placeNow() {
+  // What the preview is showing, named the way the review rows and the
+  // report name it, so a flag set here appears there.
+  if (current.fmt === 'pdf') return `page ${page}`;
+  if (sheetLayouts.length && sheet > 0) return `sheet ${sheetLayouts[sheet-1]}`;
+  return '';
+}
+
+async function flagPage() {
+  const place = placeNow();
+  if (!place) { toast('Pick a page or sheet first'); return; }
+  const flags = current.flags || {};
+  const had = place in flags;
+  const note = prompt(had
+    ? `What should whoever edits this look at on ${place}?\n\nLeave it empty and press OK to remove the flag.`
+    : `Flag ${place} for whoever edits this drawing.\n\nWhat should they look at?`, had ? flags[place] : '');
+  if (note === null) return;                       // cancelled
+  const clear = had && !note.trim();
+  current = await api(`/api/jobs/${current.id}/flag`, {method:'POST', headers:{'content-type':'application/json'},
+    body: JSON.stringify({place, note, clear})});
+  toast(clear ? `Flag removed from ${place}` : `${place} flagged — it is in the report`);
+  render();
+}
+
 function pageFlags() {
   // Which pages have something worth a look: a string still overflowing its
   // space, one the model was not sure of, or one nobody has approved. Counted
   // per page so the picker can say where to go rather than making someone
   // click through thirty-four sheets to find out.
   const out = {};
+  for (const pl of Object.keys(current.flags || {})) {
+    const m = /^page (\d+)$/.exec(pl);
+    if (m) out[+m[1]] = (out[+m[1]] || 0) + 1;
+  }
   for (const r of rows) {
     if (r.approved && r.ok && r.fit !== 'overflow') continue;
     for (const pl of (r.places || [])) {
@@ -714,6 +742,7 @@ function renderPreview() {
       ${current.fmt!=='pdf' && !sheetLayouts.length && (sheetList.length>1 || (sheetsExact && sheetList.length===1)) ? `<span style="margin-left:8px">Sheet <select onchange="sheet=parseInt(this.value);windowStack=[];renderPreview()">${['<option value="0"'+(sheet===0?' selected':'')+'>whole drawing</option>'].concat(sheetList.map((b,i)=>`<option value="${i+1}" ${sheet===i+1?'selected':''}>${sheetLabels[i] ? esc(sheetLabels[i]) : (i+1)+' of '+sheetList.length}</option>`)).join('')}</select></span>` : ''}
       ${(() => { const fl = pageFlags(), n = Object.keys(fl).length;
         return n ? `<span class="count" style="margin-left:8px">${n} page${n===1?'':'s'} with something to check — marked in the list</span>` : ''; })()}
+      ${placeNow() ? `<button onclick="flagPage()" title="Mark this ${current.fmt==='pdf'?'page':'sheet'} in the report, for whoever edits the drawing">${(current.flags||{})[placeNow()]!==undefined ? '⚑ Flagged' : '⚑ Flag this '+(current.fmt==='pdf'?'page':'sheet')}</button>` : ''}
       <span class="count">Drag a rectangle to zoom into that area. Large sheets take up to a minute to draw.${hint}</span>
     </div>
     <div class="preview" id="pv"><div class="busy"><div class="spin"></div><div id="pvmsg">Drawing… (a big sheet can take a minute or two the first time)</div></div></div>`;

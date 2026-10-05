@@ -442,6 +442,32 @@ async def set_segment(job_id: str, seg_id: str, body: dict):
     return next((r for r in job.review_table() if r["id"] == seg_id), {})
 
 
+@app.post("/api/jobs/{job_id}/flag")
+def flag(job_id: str, body: dict):
+    """Mark a page or sheet for whoever takes this drawing on, or clear it.
+
+    The app flags what it can measure. A reviewer looking at the sheet sees
+    what it cannot -- a label sitting over a door, a note that reads wrongly
+    in English -- and that knowledge was being lost between the screen and
+    whoever does the editing. A flag with a note carries it into the report.
+    """
+    job = _job(job_id)
+    place = str(body.get("place") or "").strip()
+    if not place:
+        raise HTTPException(400, "which page?")
+    m = job.meta
+    flags = dict(m.get("flags") or {})
+    note = str(body.get("note") or "").strip()
+    if body.get("clear"):
+        flags.pop(place, None)
+    else:
+        flags[place] = note
+    m["flags"] = flags
+    job.meta = m
+    job.save_meta()
+    return _state(job_id)
+
+
 @app.post("/api/jobs/{job_id}/approve-all")
 def approve_all(job_id: str):
     return {"approved": _job(job_id).approve_all_ok()}

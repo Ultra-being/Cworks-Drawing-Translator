@@ -18,6 +18,7 @@ import json
 import os
 import shutil
 import threading
+import re
 import time
 import uuid
 from dataclasses import asdict
@@ -112,6 +113,66 @@ def _w(path: Path, data) -> None:
 
 def _r(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _by_place(rows: list[dict], overflow: list[str]) -> list[str]:
+    """What is left to look at, gathered by where it is.
+
+    The rest of the report counts things. This says where to go. Whoever
+    takes the drawing on does the touching-up in DWG, and a list of segment
+    ids tells them nothing -- a list of pages tells them exactly which sheets
+    to open and what to expect on each.
+    """
+    over = set(overflow)
+    todo: dict[str, dict[str, int]] = {}
+    for r in rows:
+        kinds = []
+        if r["id"] in over:
+            kinds.append("too long for the space")
+        if not r["approved"]:
+            kinds.append("not approved")
+        elif not r["ok"]:
+            kinds.append("the model was unsure")
+        if not kinds:
+            continue
+        for place in (r["places"] or ["somewhere not recorded"]):
+            for k in kinds:
+                todo.setdefault(place, {})
+                todo[place][k] = todo[place].get(k, 0) + 1
+    if not todo:
+        return ["## Pages to look at", "", "Nothing outstanding: every string is approved and fits.", ""]
+
+    def order(p: str):
+        bits = p.split()
+        return (0, int(bits[1])) if p.startswith("page ") and bits[1].isdigit() else (1, 0)
+
+    out = ["## Pages to look at", "",
+           "Everything below is written into the drawing. These are the places worth",
+           "a glance before it goes out, and what to expect on each.", ""]
+    for place in sorted(todo, key=lambda p: (order(p), p)):
+        what = ", ".join(f"{n} {k}" for k, n in sorted(todo[place].items()))
+        out.append(f"- **{place}** — {what}")
+    out.append("")
+    return out
+
+
+PAGE_HANDLE = re.compile(r"^p(\d+):")
+
+
+def _places(seg: dict) -> list[str]:
+    """Where this segment's instances sit, nearest-first by page number.
+
+    Jobs prepared before this was recorded have no places on them. A PDF
+    handle carries its page ("p19:34"), so those are read back from the
+    handles rather than making anyone translate the file again; a DXF job
+    older than this shows nothing, and a re-read fills it in.
+    """
+    got = [p for p in (seg.get("places") or []) if p]
+    if not got:
+        got = [f"page {m.group(1)}" for h in seg.get("handles", [])
+               for m in (PAGE_HANDLE.match(h),) if m]
+    uniq = sorted(set(got), key=lambda t: (int(t.split()[1]) if t.startswith("page ") and t.split()[1].isdigit() else 1 << 30, t))
+    return uniq
 
 
 class Job:
@@ -291,6 +352,7 @@ class Job:
         review = _r(self.dir / "review.json") if (self.dir / "review.json").exists() else {}
         rows = []
         for s in segs:
+            where = _places(s)
             t = trans.get(s["id"], {})
             f = fits.get(s["id"], {})
             r = review.get(s["id"], {})
@@ -304,6 +366,7 @@ class Job:
                 "fit": f.get("flag", ""), "ratio": f.get("ratio", 1.0), "width_factor": r.get("width_factor", f.get("suggested_width_factor", 1.0)),
                 "width_override": "width_factor" in r,
                 "approved": r.get("approved", False), "edited": "text" in r,
+                "places": where, "place": ", ".join(where[:3]) + ("…" if len(where) > 3 else ""),
             })
         return rows
 
@@ -407,7 +470,8 @@ class Job:
             f"- Full-width characters put into ASCII for the Latin font: {res.widened_forms}",
             f"- Text boxes pulled in to the cell they sit in: {res.boxed}",
             f"- Still overflowing (shorten these): {len(res.overflow)}",
-            *[f"  - {i}: {next((r['target'][:70] for r in rows if r['id'] == i), '')!r}" for i in res.overflow],
+            *[f"  - {next((r['place'] for r in rows if r['id'] == i), '') or i}: "
+              f"{next((r['target'][:70] for r in rows if r['id'] == i), '')!r}" for i in res.overflow],
             f"- Text styles changed for the target font: {len(res.style_changes)}",
             *[f"  - {s}" for s in res.style_changes],
             "",
@@ -417,6 +481,7 @@ class Job:
                "name is a path, not a label, and is left untranslated. Ask the sender for these:",
                *[f"- `{f}`" for f in (m.get("stages", {}).get("inventory", {}) or {}).get("links", [])],
                ""] if (m.get("stages", {}).get("inventory", {}) or {}).get("links") else []),
+            *_by_place(rows, res.overflow),
             "## Verification",
             f"- Geometry unchanged: {'yes' if ver.ok else 'NO'}",
             f"- Line-work entities: {ver.entities_before} before, {ver.entities_after} after",

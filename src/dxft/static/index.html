@@ -628,9 +628,10 @@ function renderReview() {
       <input type="text" placeholder="Search…" value="${esc(search)}" oninput="search=this.value;renderReview()">
       <span class="count">${v.length} of ${rows.length} strings · a string covers every entity with the same source text</span>
     </div>
-    <table><thead><tr><th></th><th>Source</th><th>Translation (click to edit)</th><th>×</th><th>Fit</th><th>Note</th></tr></thead>
+    <table><thead><tr><th></th><th>Where</th><th>Source</th><th>Translation (click to edit)</th><th>×</th><th>Fit</th><th>Note</th></tr></thead>
     <tbody>${v.map(r => `<tr data-id="${r.id}" class="${r.edited?'dirty':''}">
       <td><input type="checkbox" ${r.approved?'checked':''} onchange="setRow('${r.id}',{approved:this.checked})" title="approved"></td>
+      <td class="small" style="white-space:nowrap">${r.place ? `<a href="#" title="Open this page" onclick="showPlace('${esc(r.places[0])}');return false">${esc(r.place)}</a>` : ''}</td>
       <td class="src">${esc(r.source)}</td>
       <td class="tgt"><textarea rows="${Math.max(1, Math.ceil(r.display.length/40) + (r.display.match(/\n/g)||[]).length)}" onchange="setRow('${r.id}',{text:this.value})">${esc(r.display)}</textarea></td>
       <td class="small">${r.count}${r.lines>1?` · ${r.lines} lines`:''}${r.edited?` <button title="Back to the model's translation" style="padding:0 5px;font-size:11px" onclick="setRow('${r.id}',{revert:true})">↺</button>`:''}</td>
@@ -638,6 +639,19 @@ function renderReview() {
       <td class="small" style="white-space:normal">${r.ok?'':'<span class="chip bad">needs a human</span> '}${r.note && r.note!=='from memory' ? esc(r.note) : r.note==='from memory' ? '<span class="chip">memory</span>' : ''}</td>
     </tr>`).join('')}</tbody></table>`;
 }
+function showPlace(place) {
+  // A flagged row is only useful if you can get to it. For a PDF the place
+  // is a page, so the preview opens there; a sheet or a block has no single
+  // place to jump to, so the link just does nothing rather than lying.
+  const m = /^page (\d+)$/.exec(place || '');
+  if (!m) return;
+  page = parseInt(m[1]);
+  windowStack = [];
+  tab = 'preview';
+  which = current.stages?.patch ? 'after' : 'before';
+  render();
+}
+
 function fitChip(r) {
   if (!r.fit) return '';
   const cls = r.fit === 'overflow' ? 'bad' : r.fit === 'tight' ? 'warn' : '';
@@ -654,6 +668,22 @@ async function setRow(id, body) {
 }
 
 // ── preview ──
+function pageFlags() {
+  // Which pages have something worth a look: a string still overflowing its
+  // space, one the model was not sure of, or one nobody has approved. Counted
+  // per page so the picker can say where to go rather than making someone
+  // click through thirty-four sheets to find out.
+  const out = {};
+  for (const r of rows) {
+    if (r.approved && r.ok && r.fit !== 'overflow') continue;
+    for (const pl of (r.places || [])) {
+      const m = /^page (\d+)$/.exec(pl);
+      if (m) out[+m[1]] = (out[+m[1]] || 0) + 1;
+    }
+  }
+  return out;
+}
+
 function gotoPage(n) {
   const np = (current.stages?.inventory||{}).pages || 1;
   page = Math.max(1, Math.min(isNaN(n) ? 1 : n, np));
@@ -676,11 +706,14 @@ function renderPreview() {
         // same list and arrows the drawings have.
         return np > 1
           ? `<span style="margin-left:8px">Page <button ${page<=1?'disabled':''} onclick="gotoPage(${page-1})" title="Previous page">‹</button>
-             <select onchange="gotoPage(parseInt(this.value))">${Array.from({length:np},(_,i)=>`<option value="${i+1}" ${page===i+1?'selected':''}>${i+1} of ${np}</option>`).join('')}</select>
+             <select onchange="gotoPage(parseInt(this.value))">${(() => { const fl = pageFlags();
+               return Array.from({length:np},(_,i)=>`<option value="${i+1}" ${page===i+1?'selected':''}>${i+1} of ${np}${fl[i+1]?` — ${fl[i+1]} to check`:''}</option>`).join(''); })()}</select>
              <button ${page>=np?'disabled':''} onclick="gotoPage(${page+1})" title="Next page">›</button></span>`
           : `<span style="margin-left:8px">Page <input type="text" id="pg" value="${page}" style="width:56px" onchange="gotoPage(parseInt(this.value))"> of ${np||'?'}</span>`; })() : ''}
       ${current.fmt!=='pdf' && sheetLayouts.length ? `<span style="margin-left:8px">Sheet <select onchange="sheet=parseInt(this.value);windowStack=[];renderPreview()">${sheetLayouts.map((n,i)=>`<option value="${i+1}" ${sheet===i+1?'selected':''}>${esc(n)}</option>`).join('')}</select></span>` : ''}
       ${current.fmt!=='pdf' && !sheetLayouts.length && (sheetList.length>1 || (sheetsExact && sheetList.length===1)) ? `<span style="margin-left:8px">Sheet <select onchange="sheet=parseInt(this.value);windowStack=[];renderPreview()">${['<option value="0"'+(sheet===0?' selected':'')+'>whole drawing</option>'].concat(sheetList.map((b,i)=>`<option value="${i+1}" ${sheet===i+1?'selected':''}>${sheetLabels[i] ? esc(sheetLabels[i]) : (i+1)+' of '+sheetList.length}</option>`)).join('')}</select></span>` : ''}
+      ${(() => { const fl = pageFlags(), n = Object.keys(fl).length;
+        return n ? `<span class="count" style="margin-left:8px">${n} page${n===1?'':'s'} with something to check — marked in the list</span>` : ''; })()}
       <span class="count">Drag a rectangle to zoom into that area. Large sheets take up to a minute to draw.${hint}</span>
     </div>
     <div class="preview" id="pv"><div class="busy"><div class="spin"></div><div id="pvmsg">Drawing… (a big sheet can take a minute or two the first time)</div></div></div>`;

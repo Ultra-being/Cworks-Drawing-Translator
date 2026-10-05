@@ -166,3 +166,22 @@ re-translate, approve, and patch again. There is no need to upload again.
 It does not. Above the preview is **Page ‹ [1 of 34] ›**. Use the arrows or
 pick from the list. Every page of the PDF is translated, whichever one you
 happen to be looking at.
+
+### Which pages still need a look
+
+Three places say so, and they agree with each other:
+
+- **The review table** has a **Where** column. Click the page number and the
+  preview opens there.
+- **The page list** above the preview marks them: *"12 of 34 — 1 to check"*,
+  with a count of how many pages are marked.
+- **The report** ends with **Pages to look at**, naming each page and what to
+  expect on it. That is the page to send to whoever does the DWG edits.
+
+A page is marked when something on it is still too long for its space, was
+not approved, or the model was unsure of it. Everything is written into the
+drawing either way. These are places worth a glance before it goes out, not
+errors.
+
+On a DXF, text held in a block is named as a block rather than a sheet,
+because a block can sit on several sheets and naming one would be a guess.

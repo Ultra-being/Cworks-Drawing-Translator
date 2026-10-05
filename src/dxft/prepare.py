@@ -69,6 +69,7 @@ class Segment:
     line_caps_max: list[list[float]] = field(default_factory=list)
     spare: list[int] = field(default_factory=list)   # per instance: further lines the space below would take
     boxes: list[float] = field(default_factory=list)  # per instance: MTEXT box width to force, in drawing units (0 = leave it)
+    places: list[str] = field(default_factory=list)   # per instance: where it sits, for a reviewer ("page 19", "sheet ПОС")
     lines: int = 1         # lines available per instance (paragraphs > 1)
     budget_chars: int = 0  # length hint for the model, 0 = no constraint known
 
@@ -244,6 +245,7 @@ def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list
         last = group[-1]
         seg.spare.append(layout.spare_lines(last, clear.get(last.handle, 0.0)) if cap > 0 else 0)
         seg.boxes.append(_box_clamp(group, avail))
+        seg.places.append(place_name(first.where))
         seg.lines = max(seg.lines, len(group))
         for t in group:
             seg.handles.append(t.handle)
@@ -260,6 +262,26 @@ def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list
             # ems -> characters at ~0.6 em each, plus the 10% that narrowing can absorb
             seg.budget_chars = int(min(known) * seg.lines / 0.6 * 1.1)
     return list(by_source.values()), handle_map, skipped
+
+
+def place_name(where: str) -> str:
+    """Where a string sits, in words a reviewer can act on.
+
+    A flagged string is only useful if you can find it. The job records a
+    machine's idea of where ("page:19", "paper:ПОС"), which nobody can take
+    to a drawing, so it is said plainly here and carried on the segment --
+    worked out once, rather than on every look at the review table.
+
+    A block is named as a block because that is the truth: a block is placed
+    on a sheet, sometimes on several, and claiming one would be a guess.
+    """
+    if where.startswith("page:"):
+        return f"page {where[5:]}"
+    if where.startswith("paper:"):
+        return f"sheet {where[6:]}"
+    if where.startswith("block:"):
+        return f"block {where[6:]}"
+    return "model space" if where == "model" else (where or "")
 
 
 def _box_clamp(group: list[TextItem], avail: dict[str, float]) -> float:

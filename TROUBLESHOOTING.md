@@ -158,8 +158,8 @@ string made of unrelated cells, and writing a translation back put it in one
 place and blanked the rest. Fixed on 5 October 2026: the app now reads a PDF
 by where each character actually sits.
 
-If you see this on a job started before that date, use **Re-read drawing**,
-then re-translate. There is no need to upload again.
+If you see this on a job started before that date, use **Re-read PDF**, then
+re-translate, approve, and patch again. There is no need to upload again.
 
 ### A PDF looks like it only has one page
 

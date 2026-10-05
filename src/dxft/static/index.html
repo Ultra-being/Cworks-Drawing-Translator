@@ -504,8 +504,8 @@ function renderHeader() {
       <button ${pa?'':'disabled'} onclick="saveAs('output')">Download ${(current.fmt||'dxf').toUpperCase()}</button>
       <button ${pa?'':'disabled'} onclick="saveAs('report.md')">Report</button>
       <button ${busy||!pa?'disabled':''} onclick="act('remember')" title="Reuse these approved translations on later sheets">Store in memory</button>
-      <button ${busy||current.fmt==='pdf'?'disabled':''} onclick="act('reread')"
-              title="Read the drawing again — its sheets, cell walls and spacing — keeping the translations. Use after the app has been updated.">Re-read drawing</button>
+      <button ${busy?'disabled':''} onclick="act('reread')"
+              title="Read the file again — a drawing's sheets, cell walls and spacing, or a PDF's text — keeping the translations. Use after the app has been updated.">Re-read ${current.fmt==='pdf'?'PDF':'drawing'}</button>
       <button onclick="openHelp()" title="Ask about this drawing, or report a problem">Help</button>
       <span style="flex:1"></span>
       ${busy || current.error ? `<button onclick="unstick()" title="Clear a step that is no longer running, after a restart">Unstick</button>` : ''}

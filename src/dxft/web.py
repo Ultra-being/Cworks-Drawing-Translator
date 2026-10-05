@@ -340,15 +340,19 @@ def reread(job_id: str):
     translations.
 
     Stages 1 and 2 are where a drawing's sheets, cell walls and clear space
-    are worked out. When something improves there, a job translated earlier
-    knows nothing of it -- and re-uploading to get it means paying for the
-    same drawing twice. This re-runs those two stages in place. Stage 3 is
-    untouched, so what has already been translated stays translated, and the
-    memory covers anything the new segmentation asks for.
+    are worked out, and where a PDF's text is read off the page. When
+    something improves there, a job translated earlier knows nothing of it --
+    and re-uploading to get it means paying for the same drawing twice. This
+    re-runs those two stages in place. Stage 3 is untouched, so what has
+    already been translated stays translated, and the memory covers anything
+    the new segmentation asks for.
+
+    PDFs were refused here, for no reason that survives looking at it: both
+    stages have always handled them. The refusal meant the only way to give a
+    PDF job a better reading was to upload it again, which is the cost this
+    whole endpoint exists to avoid.
     """
     job = _job(job_id)
-    if job.fmt == "pdf":
-        raise HTTPException(400, "only a DXF can be read again")
 
     def run():
         job.inventory()

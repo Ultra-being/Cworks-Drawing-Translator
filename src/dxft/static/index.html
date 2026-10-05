@@ -524,7 +524,22 @@ async function unstick() {
 async function act(what) {
   try {
     if (what === 'reread' && !confirm('Read this drawing again?\n\nIts sheets, cell walls and spacing are worked out afresh, which is what picks up an improvement to the app. The translations are kept — nothing is sent to the model and nothing is charged.')) return;
-    if (what === 'approve-all') { await api(`/api/jobs/${current.id}/approve-all`, {method:'POST'}); rows = await api(`/api/jobs/${current.id}/review`); render(); return; }
+    if (what === 'approve-all') {
+      // It approves the clean rows and leaves the flagged ones for a human,
+      // which is right, but it used to say nothing at all -- so pressing it
+      // on a job with nothing left to approve looked exactly like a button
+      // that does not work. Say what happened, every time.
+      const r = await api(`/api/jobs/${current.id}/approve-all`, {method:'POST'});
+      rows = await api(`/api/jobs/${current.id}/review`);
+      const left = rows.filter(x => !x.approved).length;
+      const flagged = left === 1 ? '1 row still needs' : `${left} rows still need`;
+      toast(r.approved
+        ? (left ? `Approved ${r.approved}. ${flagged} a look — use the Needs attention filter.`
+                : `Approved ${r.approved}. All ${rows.length} ready to patch.`)
+        : (left ? `Nothing new to approve. ${flagged} a look — use the Needs attention filter.`
+                : `Already approved. All ${rows.length} ready to patch.`));
+      render(); return;
+    }
     if (what === 'remember') {
       const r = await api(`/api/jobs/${current.id}/remember`, {method:'POST'});
       // Nothing new is the usual answer on a later sheet of a set, and it is

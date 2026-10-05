@@ -190,6 +190,24 @@ then marked in the page list like any other, and the report says:
 That is how something you noticed reaches whoever does the editing. Press the
 button again and clear the note to remove the flag.
 
+### "Too long" and "squeezed to fit"
+
+English is usually longer than Japanese or Russian, so the app measures the
+room each piece of text has and makes it fit: it wraps onto the lines
+available, then narrows the letters, never past the point where they stop
+being readable.
+
+A row says one of two things, or nothing at all:
+
+- **too long** — it still does not fit, even narrowed as far as is allowed.
+  This is the only one that wants you. Click the translation and write it
+  shorter. The **Too long** filter shows just these.
+- **squeezed to fit** — it fits, but the letters were narrowed to get there.
+  Nothing to do. Worth knowing when you look at the sheet.
+- **nothing** — it fits.
+
+Both are written into the drawing either way. Neither is an error.
+
 ### Getting the notes to the engineers
 
 The engineers get the PDF, not the app. So the notes go into the PDF.

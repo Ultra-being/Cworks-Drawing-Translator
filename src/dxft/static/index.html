@@ -129,7 +129,7 @@
   <div id="helpLog" style="max-height:46vh;overflow:auto;margin:10px 0"></div>
   <form onsubmit="return askHelp(event)" style="margin:0">
     <input id="helpQ" type="text" autocomplete="off" style="width:100%"
-           placeholder="e.g. is this stuck? why is this label squashed? what does overflow mean?">
+           placeholder="e.g. is this stuck? why is this label squashed? which pages need a look?">
     <div class="row" style="margin-top:8px">
       <button type="button" onclick="showReport()">Report a problem</button>
       <span style="flex:1"></span>
@@ -494,7 +494,7 @@ function renderHeader() {
       ${st('prepare','2 Prepare', pr ? `${pr.segments} unique${pr.paragraphs?', '+pr.paragraphs+' paragraphs':''}` : '')}
       ${st('translate','3 Translate', tr ? `${tr.translated} ok${tr.from_memory?', '+tr.from_memory+' from memory':''}${tr.needs_attention?', '+tr.needs_attention+' need a human':''}` : '')}
       ${st('review','4 Review', rows.length ? `${rows.filter(r=>r.approved).length}/${rows.length} approved` : '')}
-      ${st('patch','5 Patch & verify', pa ? `${pa.patched} entities${pa.narrowed?', '+pa.narrowed+' narrowed':''}${pa.overflow?', '+pa.overflow+' overflow':''} · geometry ${pa.verified?'unchanged':'CHANGED'}` : '')}
+      ${st('patch','5 Patch & verify', pa ? `${pa.patched} entities${pa.narrowed?', '+pa.narrowed+' narrowed':''}${pa.overflow?', '+pa.overflow+' too long':''} · geometry ${pa.verified?'unchanged':'CHANGED'}` : '')}
     </div>
     ${inv?.links?.length ? linksNotice(inv.links) : ''}
     <div class="actions">
@@ -614,9 +614,9 @@ function undoToast(text, undo) {
 function visible() {
   const q = search.toLowerCase();
   return rows.filter(r => {
-    if (filter === 'attention') { if (r.ok && !(r.note && r.note !== 'from memory') && !r.fit) return false; }
+    if (filter === 'attention') { if (r.ok && !(r.note && r.note !== 'from memory') && r.fit !== 'overflow') return false; }
     else if (filter === 'unapproved') { if (r.approved) return false; }
-    else if (filter === 'fit') { if (!r.fit) return false; }
+    else if (filter === 'toolong') { if (r.fit !== 'overflow') return false; }
     else if (filter === 'edited') { if (!r.edited) return false; }
     if (q && !(r.source.toLowerCase().includes(q) || r.display.toLowerCase().includes(q))) return false;
     return true;
@@ -628,12 +628,12 @@ function renderReview() {
   const v = visible();
   body.innerHTML = `
     <div class="filters">
-      ${[['all','All'],['attention','Needs attention'],['fit','Fit flags'],['unapproved','Not approved'],['edited','Edited']].map(([k,l]) =>
+      ${[['all','All'],['attention','Needs attention'],['toolong','Too long'],['unapproved','Not approved'],['edited','Edited']].map(([k,l]) =>
         `<button class="${filter===k?'primary':''}" onclick="filter='${k}';renderReview()">${l}</button>`).join('')}
       <input type="text" placeholder="Search…" value="${esc(search)}" oninput="search=this.value;renderReview()">
       <span class="count">${v.length} of ${rows.length} strings · a string covers every entity with the same source text</span>
     </div>
-    <table><thead><tr><th></th><th>Where</th><th>Source</th><th>Translation (click to edit)</th><th>×</th><th>Fit</th><th>Note</th></tr></thead>
+    <table><thead><tr><th></th><th>Where</th><th>Source</th><th>Translation (click to edit)</th><th>×</th><th>Space</th><th>Note</th></tr></thead>
     <tbody>${v.map(r => `<tr data-id="${r.id}" class="${r.edited?'dirty':''}">
       <td><input type="checkbox" ${r.approved?'checked':''} onchange="setRow('${r.id}',{approved:this.checked})" title="approved"></td>
       <td class="small" style="white-space:nowrap">${r.place ? `<a href="#" title="Open this page" onclick="showPlace('${esc(r.places[0])}');return false">${esc(r.place)}</a>` : ''}</td>
@@ -658,9 +658,13 @@ function showPlace(place) {
 }
 
 function fitChip(r) {
-  if (!r.fit) return '';
-  const cls = r.fit === 'overflow' ? 'bad' : r.fit === 'tight' ? 'warn' : '';
-  return `<span class="chip ${cls}">${r.fit}${r.width_factor<1?' · w'+r.width_factor:''}</span>`;
+  // Three levels of "the app had to work to fit this" was one level too many
+  // and one word too technical. Only one of them wants a person: the text that
+  // still does not fit. "long" means it fits after a touch of narrowing, so it
+  // says nothing. The width factor stays in the title for chasing a fault.
+  if (r.fit === 'overflow') return `<span class="chip bad" title="Still too long after narrowing to ${r.width_factor}. Write it shorter and it will be re-fitted.">too long</span>`;
+  if (r.fit === 'tight') return `<span class="chip warn" title="Fits, but the letters were narrowed to ${r.width_factor} of normal width">squeezed to fit</span>`;
+  return '';
 }
 async function setRow(id, body) {
   try {

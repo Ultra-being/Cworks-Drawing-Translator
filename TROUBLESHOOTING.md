@@ -149,3 +149,20 @@ on the job and should be sent on.
 
 It does not translate pictures of text, and it cannot recover text from a file that was
 never sent.
+
+### A PDF page comes back with text smeared across it and most cells empty
+
+CAD plotters sometimes write a whole column of table text as one instruction
+in the PDF, placing each character by hand. Read literally, that is one long
+string made of unrelated cells, and writing a translation back put it in one
+place and blanked the rest. Fixed on 5 October 2026: the app now reads a PDF
+by where each character actually sits.
+
+If you see this on a job started before that date, use **Re-read drawing**,
+then re-translate. There is no need to upload again.
+
+### A PDF looks like it only has one page
+
+It does not. Above the preview is **Page ‹ [1 of 34] ›**. Use the arrows or
+pick from the list. Every page of the PDF is translated, whichever one you
+happen to be looking at.

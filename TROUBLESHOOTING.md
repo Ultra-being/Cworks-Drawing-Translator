@@ -85,9 +85,14 @@ Three different causes, and they look identical on screen.
   drawing with almost no text is a scan. These cannot be translated by this tool.
 - **It came from a linked file.** Drawings often pull parts of themselves from other
   files. If those files were not sent with the drawing, the app cannot read or translate
-  them. The job page lists which links it found and which it could reach. On one job, only
-  6 of 34 links were reachable. Ask for the linked files, or for the drawing to be bound
-  before export.
+  them. The job page lists which links it found.
+
+  **A link that sits beside the drawing is nothing to chase.** The picture never left the
+  folder the drawing came from, so it is blank here and comes back by itself once the
+  translated drawing is put back in that folder, which is how the drawing is returned as
+  DWG anyway. Only a path on another machine — `C:\Users\...`, `\\server\...` — is worth
+  a look, and usually only to confirm it has been dead for years. On one job, 28 of 34
+  links were that kind.
 - **The job predates a fix.** Use **Re-read drawing**, then re-translate. Nothing is lost.
 
 ### A small box of text sits in the bottom right of every page

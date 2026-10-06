@@ -469,12 +469,20 @@ function linksNotice(links) {
   const near = links.filter(f => !/^([A-Za-z]:|\\\\)/.test(f));
   const list = fs => `<ul style="margin:4px 0 0 18px;padding:0">${fs.map(f =>
       `<li style="font-family:ui-monospace,monospace;font-size:12px;word-break:break-all">${esc(f)}</li>`).join('')}</ul>`;
-  return `<div style="background:#fef3c7;border:1px solid #f0c674;border-radius:6px;padding:9px 12px;margin:10px 0;font-size:13px">
+  // Links that sit beside the drawing are not a problem and asking the sender
+  // for them is work nobody needs to do: the file never left its own folder,
+  // and the reference finds it again as soon as the translated drawing is put
+  // back there. Only a path on another machine is worth a second look, and
+  // usually only to confirm it has been dead for years.
+  const calm = !near.length && !far.length;
+  if (calm) return '';
+  const quiet = far.length === 0;
+  return `<div style="background:${quiet ? '#eef4fa' : '#fef3c7'};border:1px solid ${quiet ? '#c7d9ea' : '#f0c674'};border-radius:6px;padding:9px 12px;margin:10px 0;font-size:13px">
     This drawing <b>points at ${links.length} file${links.length===1?'':'s'} it does not contain</b> — pictures or drawings placed into it by reference.
     They are blank here and in the drawing you download, and a sheet may show the file name in large letters instead.
     That name is a path, not a label, so it is left untranslated.
-    ${near.length ? `<div style="margin-top:8px"><b>${near.length} sit${near.length===1?'s':''} beside the drawing</b> — worth asking the sender for:${list(near)}</div>` : ''}
-    ${far.length ? `<details style="margin-top:8px"><summary style="cursor:pointer"><b>${far.length} point${far.length===1?'s':''} at someone else's machine</b> — almost certainly dead links left in the file, not worth chasing</summary>${list(far)}</details>` : ''}
+    ${near.length ? `<div style="margin-top:8px"><b>${near.length} sit${near.length===1?'s':''} beside the drawing.</b> Nothing to chase: ${near.length===1?'it is':'they are'} still in the folder the drawing came from, and ${near.length===1?'it comes':'they come'} back by ${near.length===1?'itself':'themselves'} once the translated drawing is put back there.${list(near)}</div>` : ''}
+    ${far.length ? `<details style="margin-top:8px"><summary style="cursor:pointer"><b>${far.length} point${far.length===1?'s':''} at someone else's machine</b> — these resolve for nobody, and are almost certainly dead links left in the file</summary>${list(far)}</details>` : ''}
   </div>`;
 }
 

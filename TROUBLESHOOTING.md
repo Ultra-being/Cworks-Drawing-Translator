@@ -50,6 +50,21 @@ translation will too, and that is not something the app introduced.
 If the original was clean and the English is not, use **Report a problem**. That is a real
 fault and it needs measuring, not guessing.
 
+### Before and After show different parts of the drawing
+
+They should always show the same region, so this looks alarming. Until 6 October
+2026 it could happen for a dull reason: pictures were filed under the word
+"overview" rather than under the part of the drawing they showed, so after a
+**Re-read drawing** one side could still be serving the picture drawn for the
+previous reading. Nothing was wrong with the drawing or the output.
+
+It is fixed. On a job that still shows it, drag a rectangle over the same area in
+both views: that path was never affected and the two will agree.
+
+**Geometry is checked separately and does not depend on the pictures at all.** If
+stage 5 says `geometry unchanged`, nothing was moved, resized or deleted,
+whatever the previews happen to show.
+
 ### A sheet comes back blank, or nearly blank
 
 Almost always the sheet is blank in the source as well. Sheets have windows onto the

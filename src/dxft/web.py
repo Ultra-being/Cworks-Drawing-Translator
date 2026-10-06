@@ -543,7 +543,17 @@ def preview_png(job_id: str, which: str, x0: float | None = None, y0: float | No
         if inv.exists():
             found = preview.sheets(inv)
             window = found[0] if len(found) == 1 else preview.text_extent(inv)
-    tag = ("overview" if (x0 is None) else f"{int(window[0])}_{int(window[1])}_{int(window[2])}_{int(window[3])}_{width}")
+    # The key has to say which part of the drawing was drawn, not merely that
+    # nobody zoomed. It used to read "overview" whenever no rectangle was
+    # dragged, so a window worked out afresh -- after a re-read, say, when the
+    # inventory and therefore the extent of the text has changed -- was served
+    # the picture drawn for the old one. Before and After then showed two
+    # different parts of the same drawing, which reads as geometry gone
+    # missing and is the worst thing this app could appear to do.
+    if window:
+        tag = f"{int(window[0])}_{int(window[1])}_{int(window[2])}_{int(window[3])}_{width}"
+    else:
+        tag = "overview"
     if layout:
         tag = "L" + re.sub(r"[^0-9A-Za-z]+", "_", layout)[:48] + "_" + tag
     key = tag + "_" + _preview_version()

@@ -289,8 +289,12 @@ def delete_job(job_id: str):
     until then.
     """
     job = _job(job_id)
-    if _running.get(job_id, {}).get("step"):
-        raise HTTPException(409, "job is busy")
+    # A busy job used to be undeletable, which is backwards: a job left running
+    # by a closed page is precisely the one somebody wants rid of, and refusing
+    # left them with no way to remove it at all. The step is forgotten and the
+    # folder put aside; a thread still working finds its folder gone and stops,
+    # which is what was wanted.
+    _running.pop(job_id, None)
     _trash().mkdir(parents=True, exist_ok=True)
     kept = _trash() / job_id
     shutil.rmtree(kept, ignore_errors=True)

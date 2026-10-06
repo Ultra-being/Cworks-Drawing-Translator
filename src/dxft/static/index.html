@@ -561,7 +561,7 @@ function renderHeader() {
       <button onclick="openHelp()" title="Ask about this drawing, or report a problem">Help</button>
       <span style="flex:1"></span>
       ${busy || current.error ? `<button onclick="unstick()" title="Clear a step that is no longer running, after a restart">Unstick</button>` : ''}
-      <button ${busy?'disabled':''} onclick="del()">Delete</button>
+      <button onclick="del()">Delete</button>
     </div>`;
 }
 // Clearing a step nobody is working on, after the server restarted under it.
@@ -636,7 +636,14 @@ async function del() {
   const warn = paid
     ? '\n\nThis job\'s translations have NOT been stored in the memory, so they exist only here. "Store in memory" first if you may want them again.'
     : '';
-  if (!confirm(`Delete ${current.name}?${warn}\n\nIt goes to the bin and can be brought back for 14 days.`)) return;
+  // Deleting was blocked while a step was running, which is backwards: a job
+  // left stuck by a closed page is exactly the one somebody wants rid of, and
+  // it was the only one that could not be removed without pressing Unstick
+  // first. It is allowed now, and says what is still going on.
+  const busyNow = current.running
+    ? `\n\nIt is still ${current.running === 'inventory' ? 'being read' : current.running + 'ing'} on the server. That step will stop on its own.`
+    : '';
+  if (!confirm(`Delete ${current.name}?${busyNow}${warn}\n\nIt goes to the bin and can be brought back for 14 days.`)) return;
   const id = current.id, name = current.name;
   await api(`/api/jobs/${id}`, {method:'DELETE'}); current = null; rows = [];
   $('#view').innerHTML = '<div class="empty">Pick a job on the left.</div>'; loadJobs();

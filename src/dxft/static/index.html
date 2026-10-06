@@ -153,7 +153,7 @@
     <label style="display:block;margin-bottom:6px">Copy this and send it to whoever maintains the app. It
       describes what this job did; it carries no drawing text unless you tick the box.</label>
     <label style="display:block;margin-bottom:6px"><input type="checkbox" id="repText" onchange="showReport()">
-      include the strings that did not fit</label>
+      include the ones that did not fit</label>
     <textarea id="repText2" readonly rows="14" style="width:100%;font-family:ui-monospace,monospace;font-size:12px"></textarea>
     <div class="row" style="margin-top:8px"><button type="button" onclick="copyReport()">Copy</button></div>
   </div>
@@ -359,6 +359,9 @@ function dropTarget(el, client, project) {
     loadJobs();
   };
 }
+const LANG_NAME = {ja:'Japanese', ru:'Russian', en:'English', zh:'Chinese', ko:'Korean'};
+const langName = (c) => LANG_NAME[c] || c;
+
 function statusChip(j) {
   if (j.running) return `<span class="chip run">${j.running}…</span>`;
   const s = j.stages || {};
@@ -451,7 +454,7 @@ function busyHtml() {
   if (current.total) {
     const pct = Math.min(99, Math.round(current.done / current.total * 100));
     return `<div class="empty" style="max-width:460px;margin:60px auto">
-      <div style="margin-bottom:10px">${step} · ${current.done} of ${current.total} strings${el ? ' · ' + el : ''}</div>
+      <div style="margin-bottom:10px">${step} · ${current.done} of ${current.total}${el ? ' · ' + el : ''}</div>
       <div style="height:8px;background:var(--line);border-radius:4px;overflow:hidden">
         <div style="height:100%;width:${pct}%;background:var(--accent);transition:width .4s"></div>
       </div>
@@ -512,11 +515,11 @@ function renderHeader() {
       <span class="sub" style="color:var(--mute);margin-left:auto">${spendData && spendData.per_job_jpy[current.id] != null ? 'Spent on this job ≈ <b>¥' + spendData.per_job_jpy[current.id].toLocaleString() + '</b>' : ''}</span></div>
     ${current.error ? `<div class="err">${esc(current.error)}</div>` : ''}
     <div class="stages">
-      ${st('inventory','1 Inventory', inv ? `${inv.strings} strings, ${inv.by_lang?.[current.source]||0} ${current.source}${inv.links?.length ? ', ' + inv.links.length + ' linked file' + (inv.links.length===1?'':'s') + ' missing' : ''}` : '')}
-      ${st('prepare','2 Prepare', pr ? `${pr.segments} unique${pr.paragraphs?', '+pr.paragraphs+' paragraphs':''}` : '')}
+      ${st('inventory','1 Read', inv ? `${inv.strings} pieces of text, ${inv.by_lang?.[current.source]||0} ${langName(current.source)}${inv.links?.length ? ', ' + inv.links.length + ' linked file' + (inv.links.length===1?'':'s') + ' not inside' : ''}` : '')}
+      ${st('prepare','2 Prepare', pr ? `${pr.segments} different${pr.paragraphs?', '+pr.paragraphs+' paragraphs':''}` : '')}
       ${st('translate','3 Translate', tr ? `${tr.translated} ok${tr.from_memory?', '+tr.from_memory+' from memory':''}${tr.needs_attention?', '+tr.needs_attention+' need a human':''}` : '')}
       ${st('review','4 Review', rows.length ? `${rows.filter(r=>r.approved).length}/${rows.length} approved` : '')}
-      ${st('patch','5 Patch & verify', pa ? `${pa.patched} entities${pa.narrowed?', '+pa.narrowed+' narrowed':''}${pa.overflow?', '+pa.overflow+' too long':''} · geometry ${pa.verified?'unchanged':'CHANGED'}` : '')}
+      ${st('patch','5 Patch & verify', pa ? `${pa.patched} places${pa.narrowed?', '+pa.narrowed+' narrowed':''}${pa.overflow?', '+pa.overflow+' too long':''} · geometry ${pa.verified?'unchanged':'CHANGED'}` : '')}
     </div>
     ${inv?.links?.length ? linksNotice(inv.links) : ''}
     <div class="actions">
@@ -653,7 +656,7 @@ function renderReview() {
       ${[['all','All'],['attention','Needs attention'],['toolong','Too long'],['unapproved','Not approved'],['edited','Edited']].map(([k,l]) =>
         `<button class="${filter===k?'primary':''}" onclick="filter='${k}';renderReview()">${l}</button>`).join('')}
       <input type="text" placeholder="Search…" value="${esc(search)}" oninput="search=this.value;renderReview()">
-      <span class="count">${v.length} of ${rows.length} strings · a string covers every entity with the same source text</span>
+      <span class="count">${v.length} of ${rows.length} · one row covers every place with the same text</span>
     </div>
     <table><thead><tr><th></th><th>Where</th><th>Source</th><th>Translation (click to edit)</th><th>×</th><th>Space</th><th>Note</th></tr></thead>
     <tbody>${v.map(r => `<tr data-id="${r.id}" class="${r.edited?'dirty':''}">

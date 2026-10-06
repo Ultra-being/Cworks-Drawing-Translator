@@ -187,6 +187,17 @@ It does not. Above the preview is **Page ‹ [1 of 34] ›**. Use the arrows or
 pick from the list. Every page of the PDF is translated, whichever one you
 happen to be looking at.
 
+### The words on the stage strip
+
+- **pieces of text** — one label, one table cell, one note. What the app found.
+- **different** — how many of those are not repeats. The same words appear over and over
+  on a drawing, so they are translated once and written back everywhere they occur. This
+  is why a drawing with 1,600 pieces of text can cost a quarter of what you would expect.
+- **places** — how many spots in the file were written to, which is larger than the number
+  of different pieces for the same reason.
+- **geometry unchanged** — nothing was moved, resized or deleted. Only text differs from
+  the original. This is counted and checked, not assumed.
+
 ### Which pages still need a look
 
 Three places say so, and they agree with each other:

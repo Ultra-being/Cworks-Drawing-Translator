@@ -398,12 +398,18 @@ function statusChip(j) {
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 async function openJob(id) {
-  current = await api('/api/jobs/' + id);
+  // Everything after the job itself is allowed to fail. A job left half made
+  // by a closed page has no review to show, and refusing to open it meant it
+  // could not be selected or deleted -- it just sat there ignoring clicks.
+  // Opening it with an empty table is far more use than opening nothing.
+  try {
+    current = await api('/api/jobs/' + id);
+  } catch (e) { alert(e.message); return }
   openFolders.add(current.client || 'Unfiled'); openFolders.add((current.client || 'Unfiled') + '/' + (current.project || 'General'));
   localStorage.setItem('dxft.open', JSON.stringify([...openFolders]));
   windowStack = []; page = 1; sheet = 0; sheetList = [];
-  await loadSheets(id);
-  rows = await api(`/api/jobs/${id}/review`);
+  try { await loadSheets(id); } catch (e) { sheetList = []; }
+  try { rows = await api(`/api/jobs/${id}/review`); } catch (e) { rows = []; }
   render(); loadJobs(); schedulePoll();
 }
 // Which sheets a drawing has is only known once its inventory has been read.

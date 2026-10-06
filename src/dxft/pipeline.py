@@ -115,6 +115,22 @@ def _r(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _maybe(path: Path):
+    """The file's contents, or nothing, for the stages that may not have run.
+
+    Used only where absence is ordinary: a job whose reading was interrupted
+    has no segments and no translations. Everywhere else _r still raises,
+    because a missing file there is a fault worth hearing about rather than an
+    empty table to puzzle over.
+    """
+    if not path.exists():
+        return {}
+    try:
+        return _r(path)
+    except Exception:
+        return {}
+
+
 def _to_check(rows: list[dict], overflow: list[str], flags: dict | None = None) -> dict[str, dict[str, list[str]]]:
     """place -> what is worth a look there -> the strings themselves.
 
@@ -339,11 +355,17 @@ class Job:
         return info
 
     def review_table(self) -> list[dict]:
-        """What the reviewer sees: one row per unique segment."""
-        segs = _r(self.dir / "segments.json")["segments"]
-        trans = {t["id"]: t for t in _r(self.dir / "translations.json")["translations"]}
-        fits = {f["id"]: f for f in _r(self.dir / "fit.json")}
-        review = _r(self.dir / "review.json") if (self.dir / "review.json").exists() else {}
+        """What the reviewer sees: one row per unique segment.
+
+        A job whose reading was interrupted has none of these files yet, and
+        this used to raise rather than return nothing. The page then failed to
+        open it at all, so the half-made job could not even be selected, let
+        alone deleted -- the one thing anybody wanted to do with it.
+        """
+        segs = _maybe(self.dir / "segments.json").get("segments") or []
+        trans = {t["id"]: t for t in (_maybe(self.dir / "translations.json").get("translations") or [])}
+        fits = {f["id"]: f for f in (_maybe(self.dir / "fit.json") or [])}
+        review = _maybe(self.dir / "review.json")
         rows = []
         for s in segs:
             where = _places(s)

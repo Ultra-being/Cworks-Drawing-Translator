@@ -56,9 +56,12 @@
   /* A drawing somebody has taken away is done with. Dimmed rather than
      hidden, so a long list shows at a glance where the work got to -- and
      still readable, because "done" is not "gone". */
-  .job.taken .n{color:var(--mute);font-weight:500}
-  .job.taken .m{opacity:.72}
-  .job.taken.active .n{color:var(--ink)}
+  .job.taken{opacity:.5}
+  .job.taken .n{font-weight:500}
+  .job:hover.taken,.job.taken.active{opacity:1}
+  .chip.done{background:#e3f2ea;color:var(--ok);cursor:pointer}
+  .chip.mark{cursor:pointer;opacity:0}
+  .job:hover .chip.mark{opacity:1}
   .job .m{color:var(--mute);font-size:12px}
   .chip{display:inline-block;padding:1px 7px;border-radius:10px;background:var(--chip);font-size:11px;color:var(--mute);margin-left:4px}
   .chip.ok{background:#e3f2ea;color:var(--ok)} .chip.warn{background:#f8efdd;color:var(--warn)} .chip.bad{background:#f9e3e1;color:var(--bad)} .chip.run{background:#e3ecf5;color:var(--accent)}
@@ -248,7 +251,11 @@ async function loadJobs() {
         const d = document.createElement('div');
         d.className = 'job' + (current && current.id === j.id ? ' active' : '') + (j.downloaded_at ? ' taken' : '');
         d.innerHTML = `<div class="n">${esc(j.name)}</div><div class="m">${j.source} → ${j.target} · ${j.created_at.replace('T',' ').slice(0,16)} ${statusChip(j)}</div>`;
-        d.onclick = () => openJob(j.id);
+        d.onclick = (e) => {
+          const mark = e.target.closest('[data-done]');
+          if (mark) { e.stopPropagation(); return setDone(j.id, mark.dataset.done === '1'); }
+          openJob(j.id);
+        };
         d.draggable = true;
         d.ondragstart = (e) => { e.dataTransfer.setData('text/plain', j.id); e.dataTransfer.effectAllowed = 'move'; };
         pd.appendChild(d);
@@ -362,11 +369,22 @@ function dropTarget(el, client, project) {
 const LANG_NAME = {ja:'Japanese', ru:'Russian', en:'English', zh:'Chinese', ko:'Korean'};
 const langName = (c) => LANG_NAME[c] || c;
 
+async function setDone(id, done) {
+  await api(`/api/jobs/${id}`, {method:'PATCH', headers:{'content-type':'application/json'},
+                                body: JSON.stringify({done})});
+  if (current && current.id === id) { current = await api('/api/jobs/' + id); renderHeader(); }
+  loadJobs();
+  toast(done ? 'Marked done' : 'Put back');
+}
+
 function statusChip(j) {
   if (j.running) return `<span class="chip run">${j.running}…</span>`;
   const s = j.stages || {};
-  if (j.downloaded_at) return `<span class="chip">downloaded</span>`;
-  if (s.patch) return `<span class="chip ok">${s.patch.verified ? 'patched · verified' : 'patched · CHECK'}</span>`;
+  // Clicking the mark sets or clears it, which is the only way to say so for
+  // the drawings finished before the app started watching for downloads.
+  if (j.downloaded_at) return `<span class="chip done" data-done="0" title="Marked done. Click to put it back.">✓ done</span>`;
+  if (s.patch) return `<span class="chip ok">${s.patch.verified ? 'patched · verified' : 'patched · CHECK'}</span>`
+    + ` <span class="chip mark" data-done="1" title="Mark this one done">✓</span>`;
   if (s.translate) return `<span class="chip">review</span>`;
   if (s.prepare) return `<span class="chip">ready to translate</span>`;
   return `<span class="chip">new</span>`;

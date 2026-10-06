@@ -215,6 +215,12 @@ async def update_job(job_id: str, body: dict):
         # Finished work should not crowd what is still in hand, but it is not
         # rubbish either: it keeps its folder and comes back to it.
         m["archived_at"] = time.strftime("%Y-%m-%dT%H:%M:%S") if body["archived"] else None
+    # Marking one done by hand: the app can only see a download, and every
+    # drawing finished before it started watching has no record either way.
+    # Guessing which of those were collected would be worse than letting
+    # somebody say.
+    if "done" in body:
+        m["downloaded_at"] = time.strftime("%Y-%m-%dT%H:%M:%S") if body["done"] else None
     job.meta = m
     job.save_meta()
     return _state(job_id)

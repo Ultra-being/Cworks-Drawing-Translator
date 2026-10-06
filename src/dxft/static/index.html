@@ -226,6 +226,12 @@ async function loadJobs() {
   const live = jobs.filter(j => !j.archived_at);
   const tree = {};
   for (const j of live) { const c = j.client || 'Unfiled', p = j.project || 'General'; ((tree[c] ??= {})[p] ??= []).push(j); }
+  // Within a folder, order by the drawing's name rather than by when it was
+  // uploaded. A set is worked through in its own order -- A-00, A-01, A-02 --
+  // and one re-uploaded after a mistake belongs back in its place, not at the
+  // top. Numeric collation so A-9 comes before A-10 and not after it.
+  const byName = (a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'});
+  for (const c of Object.keys(tree)) for (const pr of Object.keys(tree[c])) tree[c][pr].sort(byName);
   folderTree = tree;
   const clients = Object.keys(tree).sort((a, b) => a === 'Unfiled' ? 1 : b === 'Unfiled' ? -1 : a.localeCompare(b));
   if (openFolders.has('*first*')) { openFolders.delete('*first*'); clients.forEach(c => openFolders.add(c)); localStorage.setItem('dxft.open', JSON.stringify([...openFolders])); }
@@ -940,6 +946,14 @@ function sendOne(file, client, project, source, target, onProgress) {
   });
 }
 
+let sending = 0;
+// A reload during a batch abandons whatever has not been sent: the browser
+// cannot pick it up again afterwards. Better a question than a drawing that
+// quietly never arrived, which is exactly how one went missing.
+window.addEventListener('beforeunload', (e) => {
+  if (sending > 0) { e.preventDefault(); e.returnValue = ''; }
+});
+
 async function submitNew(e) {
   e.preventDefault();
   const f = pickedFolder('up'); if (!f.client || !f.project) { alert('Give the client and project a name'); return false; }
@@ -951,6 +965,7 @@ async function submitNew(e) {
   $('#upProg').style.display = ''; go.disabled = true; go.textContent = 'Sending…';
 
   const made = [], failed = [];
+  sending = files.length;
   for (const [i, file] of files.entries()) {
     const label = files.length > 1 ? `${i + 1} of ${files.length} · ${file.name} — ` : '';
     try {
@@ -967,7 +982,9 @@ async function submitNew(e) {
     } catch (err) {
       failed.push(`${file.name}: ${err.message}`);
     }
+    sending -= 1;
   }
+  sending = 0;
 
   $('#upProg').style.display = 'none'; bar.style.width = '0'; msg.textContent = '';
   go.disabled = false; go.textContent = 'Upload';

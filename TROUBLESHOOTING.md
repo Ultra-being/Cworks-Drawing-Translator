@@ -209,11 +209,14 @@ Three places say so, and they agree with each other:
 - **The report** ends with **Pages to look at**, naming each page and what to
   expect on it. That is the page to send to whoever does the DWG edits.
 
-### Flagging a page yourself
+### Flagging something yourself
 
 The app marks what it can measure. It cannot see a label sitting over a door
-swing or a note that reads oddly in English. When you spot one, press
-**⚑ Flag this page** above the preview and type what to look at. The page is
+swing, a note that reads oddly in English, or a line of text running off into
+empty space. When you spot one, press **⚑ Flag this page** above the preview
+and type what to look at. The button says page, sheet or drawing depending on
+what you are looking at, and a drawing with no sheets of its own can still be
+flagged as a whole. The page is
 then marked in the page list like any other, and the report says:
 
 > **page 19** — flagged by the reviewer: room name sits over the door swing

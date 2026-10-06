@@ -740,11 +740,22 @@ async function setRow(id, body) {
 
 // ── preview ──
 function placeNow() {
-  // What the preview is showing, named the way the review rows and the
-  // report name it, so a flag set here appears there.
+  // What the preview is showing, named the way the review rows and the report
+  // name it, so a flag set here appears there.
   if (current.fmt === 'pdf') return `page ${page}`;
-  if (sheetLayouts.length && sheet > 0) return `sheet ${sheetLayouts[sheet-1]}`;
-  return '';
+  if (sheetLayouts.length && sheet > 0) return `sheet ${sheetLayouts[sheet - 1]}`;
+  if (sheetList.length && sheet > 0) return `sheet ${sheetLabels[sheet - 1] || sheet}`;
+  // A drawing with no sheets of its own, or the whole of one. There used to be
+  // no flag at all here, which meant the drawings most in need of a note --
+  // the ones the app could not even divide into sheets -- were the ones that
+  // could not be flagged. "Somewhere on this drawing" is far more use to
+  // whoever edits it than nothing.
+  return 'this drawing';
+}
+
+function placeWord() {
+  if (current.fmt === 'pdf') return 'page';
+  return (sheetLayouts.length || sheetList.length) && sheet > 0 ? 'sheet' : 'drawing';
 }
 
 async function flagPage() {
@@ -813,7 +824,7 @@ function renderPreview() {
       ${current.fmt!=='pdf' && !sheetLayouts.length && (sheetList.length>1 || (sheetsExact && sheetList.length===1)) ? `<span style="margin-left:8px">Sheet <select onchange="sheet=parseInt(this.value);windowStack=[];renderPreview()">${['<option value="0"'+(sheet===0?' selected':'')+'>whole drawing</option>'].concat(sheetList.map((b,i)=>`<option value="${i+1}" ${sheet===i+1?'selected':''}>${sheetLabels[i] ? esc(sheetLabels[i]) : (i+1)+' of '+sheetList.length}</option>`)).join('')}</select></span>` : ''}
       ${(() => { const fl = pageFlags(), n = Object.keys(fl).length;
         return n ? `<span class="count" style="margin-left:8px">${n} page${n===1?'':'s'} with something to check — marked in the list</span>` : ''; })()}
-      ${placeNow() ? `<button onclick="flagPage()" title="Mark this ${current.fmt==='pdf'?'page':'sheet'} in the report, for whoever edits the drawing">${(current.flags||{})[placeNow()]!==undefined ? '⚑ Flagged' : '⚑ Flag this '+(current.fmt==='pdf'?'page':'sheet')}</button>` : ''}
+      <button onclick="flagPage()" title="Mark this ${placeWord()} in the report, for whoever edits the drawing">${(current.flags||{})[placeNow()] !== undefined ? '⚑ Flagged' : '⚑ Flag this ' + placeWord()}</button>
       <span class="count">Drag a rectangle to zoom into that area. Large sheets take up to a minute to draw.${hint}</span>
     </div>
     <div class="preview" id="pv"><div class="busy"><div class="spin"></div><div id="pvmsg">Drawing… (a big sheet can take a minute or two the first time)</div></div></div>`;

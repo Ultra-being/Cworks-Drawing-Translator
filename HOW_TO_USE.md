@@ -18,6 +18,10 @@ Sizes up to ~50 MB are fine. A 60-page PDF or a full architecture set takes 10�
 
 ## 2. Run a drawing
 
+**You can choose several drawings at once.** They go up one at a time, into the same client
+and project, and appear in the list as they land. The app reads one drawing at a time, so
+the others say they are waiting — that is normal.
+
 1. **New drawing** (top right). Choose the file, the **client** and **project** folders (type a new name or pick an existing one), the source and target language. Upload.
 2. The job appears in the sidebar under its client/project. Stage 1–2 (inventory, prepare) run at once: you see how many strings were found and how many are unique.
 3. Click **Translate**. The stage strip pulses while it runs. Strings the tool has seen before on this client (title block, legends, repeated labels) come "from memory" and cost nothing.

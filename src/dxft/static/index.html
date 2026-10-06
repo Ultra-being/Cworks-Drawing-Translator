@@ -159,10 +159,10 @@
     <!-- The native file control carries its own tooltip ("No file chosen"),
          which the browser leaves floating on the page when the dialog closes
          under the cursor. A button of our own has no such thing. -->
-    <input type="file" name="file" accept=".dxf,.pdf" id="upFile" style="display:none"
-           onchange="$('#upFileName').textContent = this.files[0] ? this.files[0].name : 'No drawing chosen yet'">
+    <input type="file" name="file" accept=".dxf,.pdf" id="upFile" multiple style="display:none"
+           onchange="$('#upFileName').textContent = this.files.length > 1 ? `${this.files.length} drawings chosen` : this.files[0] ? this.files[0].name : 'No drawing chosen yet'">
     <div style="display:flex;align-items:center;gap:10px">
-      <button type="button" onclick="$('#upFile').click()">Choose drawing…</button>
+      <button type="button" onclick="$('#upFile').click()">Choose drawings…</button>
       <span id="upFileName" class="sub" style="color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">No drawing chosen yet</span>
     </div>
     <label>Client</label>
@@ -890,43 +890,65 @@ function openNew(client, project) {
 // progress from one that never started, so the file gets sent again -- which
 // is how one drawing became four jobs. XMLHttpRequest reports progress; fetch
 // does not, which is the only reason this is not an api() call.
-function submitNew(e) {
+function sendOne(file, client, project, source, target, onProgress) {
+  // One drawing, as its own request. They go up one at a time rather than all
+  // at once: the server reads one drawing at a time anyway, and a queue of
+  // eight large files racing each other only makes the progress a lie.
+  return new Promise((resolve, reject) => {
+    const fd = new FormData();
+    fd.set('file', file); fd.set('client', client); fd.set('project', project);
+    fd.set('source', source); fd.set('target', target);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/jobs');
+    xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) onProgress(ev.loaded, ev.total); };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        let j = {}; try { j = JSON.parse(xhr.responseText) } catch (err) {}
+        resolve(j);
+      } else reject(new Error(friendlyError(xhr.status, xhr.responseText)));
+    };
+    xhr.onerror = () => reject(new Error('The upload did not reach the server. Check your connection and try again — nothing was created.'));
+    xhr.send(fd);
+  });
+}
+
+async function submitNew(e) {
   e.preventDefault();
-  const fd = new FormData(e.target);
   const f = pickedFolder('up'); if (!f.client || !f.project) { alert('Give the client and project a name'); return false; }
-  fd.set('client', f.client); fd.set('project', f.project);
+  const files = [...$('#upFile').files];
+  if (!files.length) { alert('Choose a drawing first'); return false; }
   const form = e.target, bar = $('#upBar'), msg = $('#upMsg'), go = $('#upGo');
-  $('#upProg').style.display = ''; go.disabled = true; go.textContent = 'Sending…';
-  const size = (fd.get('file') || {}).size || 0;
+  const source = form.querySelector('[name=source]').value, target = form.querySelector('[name=target]').value;
   const mb = (n) => (n / 1048576).toFixed(1) + ' MB';
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', '/api/jobs');
-  xhr.upload.onprogress = (ev) => {
-    if (!ev.lengthComputable) return;
-    const pct = Math.round(ev.loaded / ev.total * 100);
-    bar.style.width = pct + '%';
-    msg.textContent = `Sending ${mb(ev.loaded)} of ${mb(ev.total)} · ${pct}%`;
-  };
-  xhr.upload.onload = () => {
-    bar.style.width = '100%';
-    // The file is on the server now; it still has to read the drawing, which
-    // on a big set is the longer half. Say so, or this looks like a freeze.
-    msg.textContent = size > 5e6 ? 'Sent. Reading the drawing — a large set takes a minute…'
-                                 : 'Sent. Reading the drawing…';
-  };
-  const done = () => { $('#upProg').style.display = 'none'; bar.style.width = '0';
-                       msg.textContent = ''; go.disabled = false; go.textContent = 'Upload'; };
-  xhr.onload = async () => {
-    if (xhr.status >= 200 && xhr.status < 300) {
-      let j = {}; try { j = JSON.parse(xhr.responseText) } catch (err) {}
-      done(); $('#newDlg').close(); form.reset();
-      if (j.id) await openJob(j.id); else loadJobs();
-    } else {
-      done(); alert(friendlyError(xhr.status, xhr.responseText));
+  $('#upProg').style.display = ''; go.disabled = true; go.textContent = 'Sending…';
+
+  const made = [], failed = [];
+  for (const [i, file] of files.entries()) {
+    const label = files.length > 1 ? `${i + 1} of ${files.length} · ${file.name} — ` : '';
+    try {
+      const j = await sendOne(file, f.client, f.project, source, target, (loaded, total) => {
+        bar.style.width = Math.round(loaded / total * 100) + '%';
+        msg.textContent = `${label}sending ${mb(loaded)} of ${mb(total)}`;
+      });
+      bar.style.width = '100%';
+      msg.textContent = `${label}sent, reading the drawing…`;
+      if (j.id) made.push(j.id);
+      // The list grows as they land, so a long run shows progress in the
+      // sidebar as well as in the bar.
+      loadJobs();
+    } catch (err) {
+      failed.push(`${file.name}: ${err.message}`);
     }
-  };
-  xhr.onerror = () => { done(); alert('The upload did not reach the server. Check your connection and try again — nothing was created.'); };
-  xhr.send(fd);
+  }
+
+  $('#upProg').style.display = 'none'; bar.style.width = '0'; msg.textContent = '';
+  go.disabled = false; go.textContent = 'Upload';
+  $('#newDlg').close(); form.reset();
+  $('#upFileName').textContent = 'No drawing chosen yet';
+
+  if (made.length === 1 && !failed.length) { await openJob(made[0]); }
+  else { loadJobs(); if (made.length) toast(`${made.length} drawing${made.length === 1 ? '' : 's'} uploaded — reading them one at a time`); }
+  if (failed.length) alert(`${failed.length} did not upload:\n\n` + failed.join('\n'));
   return false;
 }
 // A page keeps running the code it was opened with, so after an update it

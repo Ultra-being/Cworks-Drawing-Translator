@@ -53,6 +53,12 @@
   .job.active{background:var(--bg);border-color:var(--line);padding-left:21px}
   .job.active::before{content:'\25B8';position:absolute;left:6px;top:7px;color:var(--open);font-size:17px;line-height:1;font-weight:700}
   .job .n{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* A drawing somebody has taken away is done with. Dimmed rather than
+     hidden, so a long list shows at a glance where the work got to -- and
+     still readable, because "done" is not "gone". */
+  .job.taken .n{color:var(--mute);font-weight:500}
+  .job.taken .m{opacity:.72}
+  .job.taken.active .n{color:var(--ink)}
   .job .m{color:var(--mute);font-size:12px}
   .chip{display:inline-block;padding:1px 7px;border-radius:10px;background:var(--chip);font-size:11px;color:var(--mute);margin-left:4px}
   .chip.ok{background:#e3f2ea;color:var(--ok)} .chip.warn{background:#f8efdd;color:var(--warn)} .chip.bad{background:#f9e3e1;color:var(--bad)} .chip.run{background:#e3ecf5;color:var(--accent)}
@@ -240,7 +246,7 @@ async function loadJobs() {
       dropTarget(pd.firstChild, c, p);
       for (const j of tree[c][p]) {
         const d = document.createElement('div');
-        d.className = 'job' + (current && current.id === j.id ? ' active' : '');
+        d.className = 'job' + (current && current.id === j.id ? ' active' : '') + (j.downloaded_at ? ' taken' : '');
         d.innerHTML = `<div class="n">${esc(j.name)}</div><div class="m">${j.source} → ${j.target} · ${j.created_at.replace('T',' ').slice(0,16)} ${statusChip(j)}</div>`;
         d.onclick = () => openJob(j.id);
         d.draggable = true;
@@ -356,6 +362,7 @@ function dropTarget(el, client, project) {
 function statusChip(j) {
   if (j.running) return `<span class="chip run">${j.running}…</span>`;
   const s = j.stages || {};
+  if (j.downloaded_at) return `<span class="chip">downloaded</span>`;
   if (s.patch) return `<span class="chip ok">${s.patch.verified ? 'patched · verified' : 'patched · CHECK'}</span>`;
   if (s.translate) return `<span class="chip">review</span>`;
   if (s.prepare) return `<span class="chip">ready to translate</span>`;

@@ -443,6 +443,11 @@ class Job:
                 "added_lines": res.added_lines, "ascii_forms": res.widened_forms,
                 "boxes_pulled_in": res.boxed,
                 "style_changes": res.style_changes, "verified": ver.ok, "problems": ver.problems}
+        # A fresh output makes any copy somebody already took out of date, so
+        # the job stops counting as collected and shows as live again.
+        m = self.meta
+        m.pop("downloaded_at", None)
+        self._meta = m
         self._stage_done("patch", **info)
         return info
 

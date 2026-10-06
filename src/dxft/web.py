@@ -518,6 +518,14 @@ def download(job_id: str, name: str):
         raise HTTPException(404, "not produced yet")
     stem = Path(job.meta["name"]).stem
     filename = {"output": f"{stem}_{job.meta['target'].upper()}.{fmt}", "report.md": f"{stem}_report.md", "input": job.meta["name"]}[name]
+    if name in ("output", "output-notes"):
+        # Taking the drawing away is what "done with it" actually means. The
+        # patch stage only says a file was produced; this says somebody came
+        # and collected it, which is the thing worth seeing in the list.
+        m = job.meta
+        m["downloaded_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        job.meta = m
+        job.save_meta()
     return FileResponse(str(p), filename=filename)
 
 

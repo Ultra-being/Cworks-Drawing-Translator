@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cworks Drawing Translator</title>
 <style>
-  :root{--bg:#f6f5f2;--panel:#fff;--ink:#1c1c1a;--mute:#6b6a66;--line:#e3e1dc;--accent:#1f4e79;--ok:#1d7a4a;--warn:#b7791f;--bad:#b3261e;--chip:#eeede9}
+  :root{--bg:#f6f5f2;--panel:#fff;--ink:#1c1c1a;--mute:#6b6a66;--line:#e3e1dc;--accent:#1f4e79;--ok:#1d7a4a;--open:#15b84f;--warn:#b7791f;--bad:#b3261e;--chip:#eeede9}
   *{box-sizing:border-box}
   body{margin:0;font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
   header{display:flex;align-items:center;gap:16px;padding:12px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
@@ -27,9 +27,12 @@
   /* the one thing in the sidebar you aim at most: big enough to hit, and
      green while the folder is open so the shape is not the only clue */
   .arrow{font-size:22px;line-height:1;width:20px;text-align:center;color:var(--mute);flex:none}
-  .arrow.open{color:var(--ok)}
+  /* The open arrow was the same forest green as everything else that means
+     "fine", and at this size it disappeared. It is the one thing in the
+     sidebar saying where you are, so it gets a green of its own. */
+  .arrow.open{color:var(--open);font-weight:700;text-shadow:0 0 1px var(--open)}
   .fh:hover .arrow,.ph:hover .arrow{color:var(--ink)}
-  .fh:hover .arrow.open,.ph:hover .arrow.open{color:var(--ok)}
+  .fh:hover .arrow.open,.ph:hover .arrow.open{color:var(--open)}
   .proj{margin-left:10px;border-left:2px solid var(--line);padding-left:6px;margin-bottom:4px}
   .proj>.ph{padding:4px 8px;font-size:12px;color:var(--mute);font-weight:600;cursor:pointer;display:flex;gap:6px}
   .proj>.ph:hover{color:var(--ink)}
@@ -43,8 +46,12 @@
   button.primary.go{background:var(--ok);border-color:var(--ok)}
   button:disabled{opacity:.45;cursor:default}
   select,input[type=text]{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:#fff}
-  .job{padding:8px 10px;border-radius:6px;cursor:pointer;border:1px solid transparent;margin-bottom:4px}
-  .job:hover{background:var(--bg)} .job.active{background:var(--bg);border-color:var(--line)}
+  .job{position:relative;padding:8px 10px;border-radius:6px;cursor:pointer;border:1px solid transparent;margin-bottom:4px}
+  .job:hover{background:var(--bg)}
+  /* The drawing you are working on, marked by an arrow bright enough to find
+     without hunting: a tinted background alone was too quiet to carry it. */
+  .job.active{background:var(--bg);border-color:var(--line);padding-left:21px}
+  .job.active::before{content:'\25B8';position:absolute;left:6px;top:7px;color:var(--open);font-size:17px;line-height:1;font-weight:700}
   .job .n{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .job .m{color:var(--mute);font-size:12px}
   .chip{display:inline-block;padding:1px 7px;border-radius:10px;background:var(--chip);font-size:11px;color:var(--mute);margin-left:4px}

@@ -2,8 +2,16 @@ FROM python:3.12-slim
 
 # fonts for previews (Latin, CJK) and build tools for the wheels that need them
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      fonts-liberation fonts-dejavu-core fonts-noto-cjk fontconfig curl \
+      fonts-liberation fonts-dejavu-core fonts-noto-cjk fontconfig curl tzdata \
     && rm -rf /var/lib/apt/lists/*
+
+# The people reading these timestamps are in Tokyo. The server would otherwise
+# run on UTC and stamp every job nine hours behind the office, which reads as
+# a mistake rather than as a timezone. Set here so the job list, the report
+# and the usage log all agree, instead of converting in each place and
+# missing one. tzdata is installed above because the slim image carries no
+# timezone database and TZ on its own would do nothing.
+ENV TZ=Asia/Tokyo
 
 WORKDIR /app
 COPY pyproject.toml README.md HOW_TO_USE.md TROUBLESHOOTING.md ./

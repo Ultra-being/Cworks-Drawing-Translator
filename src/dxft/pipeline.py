@@ -14,6 +14,7 @@ jobs/<id>/
 """
 from __future__ import annotations
 
+import gc
 import json
 import os
 import shutil
@@ -458,6 +459,13 @@ class Job:
             res = pt.apply(doc, items, segments, approved, self.meta["target"], wfs)
             out = self.output_path
             pt.save(doc, str(out))
+            # Let the patched drawing go before verifying. It is on disk by
+            # now, and verify opens files of its own: holding this one as
+            # well put three copies of a large set in memory at once, which
+            # is how a two-minute check became forty-four minutes on a
+            # machine that had room for two.
+            del doc
+            gc.collect()
             ver = pt.verify(str(self.input_path), str(out), added_text=res.added_lines)
         report = self._report(res, ver, rows)
         (self.dir / "report.md").write_text(report, encoding="utf-8")

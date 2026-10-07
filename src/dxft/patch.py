@@ -13,6 +13,7 @@ in the report.
 """
 from __future__ import annotations
 
+import gc
 import hashlib
 import os
 import re
@@ -383,11 +384,30 @@ def _count_text(doc: Drawing) -> int:
 
 
 def verify(original_path: str, output_path: str, added_text: int = 0) -> Verification:
-    a, _ = load(original_path)
-    b, _ = load(output_path)
-    na, ha = _geometry_fingerprint(a)
-    nb, hb = _geometry_fingerprint(b)
-    ta, tb = _count_text(a), _count_text(b)
+    """Prove the drawing did not change, one file at a time.
+
+    Both used to be open at once, which on a large drawing is two copies of
+    it in memory while the patched one is very often still held by the
+    caller -- three copies of a 179 MB set, about 2.4 GB, on a machine with
+    2 GB. The work then takes twenty times longer than it should, not
+    because anything is wrong but because the machine is out of room: one
+    such drawing went from a hundred and forty seconds to forty-four
+    minutes and was still going.
+
+    Nothing about the check changes. Each file is read, measured, and let go
+    before the next is opened, and the two sets of numbers are compared at
+    the end as before.
+    """
+    def measure(path: str):
+        doc, _ = load(path)
+        n, h = _geometry_fingerprint(doc)
+        t = _count_text(doc)
+        del doc
+        gc.collect()
+        return n, h, t
+
+    na, ha, ta = measure(original_path)
+    nb, hb, tb = measure(output_path)
     problems = []
     if na != nb:
         problems.append(f"non-text entity count changed: {na} -> {nb}")

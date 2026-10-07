@@ -147,6 +147,27 @@ def _stop_phantom_wrapping(doc) -> int:
     return fixed
 
 
+# A drawing with a third of a million entities cannot be drawn at full size:
+# one Russian set ran the server out of memory every time and the picture
+# never appeared at all. Halving the width quarters the work, and a coarse
+# picture that arrives beats a sharp one that does not.
+BUSY = 60_000          # entities beyond which a drawing is drawn smaller
+CROWDED = 200_000      # and beyond which it is drawn smaller still
+
+
+def _affordable(space, width_px: int) -> int:
+    """The width to draw at, given how much there is to draw."""
+    try:
+        n = len(space)
+    except TypeError:
+        n = sum(1 for _ in space)
+    if n >= CROWDED:
+        return max(width_px // 3, 1200)
+    if n >= BUSY:
+        return max(width_px // 2, 1600)
+    return width_px
+
+
 def render(dxf_path: Path, png_path: Path, window: tuple[float, float, float, float] | None = None,
            width_px: int = 4000, layout: str | None = None) -> tuple[float, float, float, float]:
     """Render model space, or a named paper layout, to PNG. Returns the window
@@ -166,6 +187,7 @@ def render(dxf_path: Path, png_path: Path, window: tuple[float, float, float, fl
     _point_cjk_styles_at_cjk_font(doc)
     _stop_phantom_wrapping(doc)
     space = doc.modelspace()
+    width_px = _affordable(space, width_px)
     if layout:
         try:
             space = doc.layouts.get(layout)

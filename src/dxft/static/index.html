@@ -199,7 +199,7 @@ const $ = s => document.querySelector(s);
 // the usual cause is the server restarting after an update.
 function friendlyError(status, body) {
   if (status === 502 || status === 503 || status === 504)
-    return 'The server is restarting (this happens after an update). Wait a few seconds and try again — nothing was lost.';
+    return 'The server went away and is coming back. Usually an update; sometimes it ran out of memory drawing a large sheet. Wait a few seconds and try again — nothing was lost.';
   let t = (body || '').trim();
   try { t = JSON.parse(t).detail || t } catch (e) {}
   if (/^\s*<(!doctype|html)/i.test(t)) return `The server returned an error (${status}). Try again in a moment.`;

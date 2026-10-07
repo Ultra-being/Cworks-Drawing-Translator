@@ -3,7 +3,11 @@ services:
   - type: web
     name: cworks-drawing-translator
     runtime: docker
-    plan: starter
+    # 512 MB could not draw a large sheet. Rendering a 47 MB drawing at 4000
+    # pixels went over it, the container was killed from outside -- so Python
+    # never saw a MemoryError and never got to say anything -- and every
+    # request in flight came back as a server that had gone away.
+    plan: standard
     region: singapore
     healthCheckPath: /healthz
     disk:

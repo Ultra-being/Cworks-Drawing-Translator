@@ -116,6 +116,17 @@ viewer limitation, not a translation fault.
 
 ## C. Something is wrong with the app
 
+### A drawing sits there doing nothing, with every step grey
+
+Reading starts by itself on upload, so a drawing still showing no steps was
+interrupted. Almost always that means the server restarted underneath it — a
+deploy does that, and it stops whatever was running. The job is left looking
+idle, because the "I am working" state lives in memory and is gone with the
+restart.
+
+Press **Re-read drawing**. Nothing has been lost and nothing has been charged.
+The app now says so on the job rather than leaving you to guess.
+
 ### A stage has said "working" for a long time
 
 Large sheets take several minutes to translate. Drawing a preview of a big drawing takes a

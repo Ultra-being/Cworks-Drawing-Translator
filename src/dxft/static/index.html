@@ -544,6 +544,11 @@ function renderHeader() {
       <a href="#" onclick="moveJob();return false" style="color:var(--accent)">move</a></span>
       <span class="sub" style="color:var(--mute);margin-left:auto">${spendData && spendData.per_job_jpy[current.id] != null ? 'Spent on this job ≈ <b>¥' + spendData.per_job_jpy[current.id].toLocaleString() + '</b>' : ''}</span></div>
     ${current.error ? `<div class="err">${esc(current.error)}</div>` : ''}
+    ${!inv && !busy ? `<div class="err" style="background:#fef3c7;border:1px solid #f0c674;color:var(--ink)">
+      <b>This drawing has not been read yet.</b> Reading starts on upload, so it was most likely
+      interrupted — a deploy restarts the server and stops whatever was running, and the job is
+      left looking idle with nothing to say so. Press <b>Re-read drawing</b> to start it. Nothing
+      has been lost and nothing has been charged.</div>` : ''}
     <div class="stages">
       ${st('inventory','1 Read', inv ? `${inv.strings} pieces of text, ${inv.by_lang?.[current.source]||0} ${langName(current.source)}${inv.links?.length ? ', ' + inv.links.length + ' linked file' + (inv.links.length===1?'':'s') + ' not inside' : ''}` : '')}
       ${st('prepare','2 Prepare', pr ? `${pr.segments} different${pr.paragraphs?', '+pr.paragraphs+' paragraphs':''}` : '')}

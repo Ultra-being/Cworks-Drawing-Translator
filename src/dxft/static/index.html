@@ -354,7 +354,11 @@ function toast(text) {
   const el = document.createElement('div');
   el.textContent = text;
   el.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:8px 14px;border-radius:8px;font-size:13px;z-index:99;box-shadow:0 4px 16px rgba(0,0,0,.2)';
-  document.body.appendChild(el);
+  // A modal <dialog> is put in the browser's top layer, which is above every
+  // element on the page whatever its z-index, so a toast appended to <body>
+  // while one is open is drawn behind the backdrop and never seen. Putting it
+  // inside the open dialog keeps it in that same top layer.
+  (document.querySelector('dialog[open]') || document.body).appendChild(el);
   setTimeout(() => el.remove(), 2600);
 }
 

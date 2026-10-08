@@ -129,6 +129,11 @@ The app now says so on the job rather than leaving you to guess.
 
 ### A stage has said "working" for a long time
 
+**Look at the size the app shows while it works.** A 179 MB drawing takes twenty to forty
+minutes *a stage*, and there are three long ones: reading, translating, and writing. Over an
+hour in total is normal for a drawing that size, and stopping it half way achieves nothing
+except starting again.
+
 Large sheets take several minutes to translate. Drawing a preview of a big drawing takes a
 minute or two per sheet. The progress bar reports the stage it is on, and the Help dialog
 can read the job's own diagnostics, including how long the stage has actually been

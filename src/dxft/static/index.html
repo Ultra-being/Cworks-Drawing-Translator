@@ -491,7 +491,20 @@ function busyHtml() {
       <div class="sub" style="margin-top:8px;color:var(--mute)">${pct}%</div></div>`;
   }
   return `<div class="empty" style="margin:60px auto">${step}…${el ? ' · ' + el : ''}
-    <div class="sub" style="color:var(--mute);margin-top:6px">a large drawing takes a few minutes</div></div>`;
+    <div class="sub" style="color:var(--mute);margin-top:6px">${howLong()}</div></div>`;
+}
+
+function howLong() {
+  // Measured, not guessed: a 179 MB drawing takes about half an hour a stage
+  // on the server, and telling its owner "a few minutes" was wrong by a
+  // factor of ten -- which is how a perfectly normal run comes to look broken
+  // and gets stopped half way.
+  const mb = current && current.size_mb;
+  if (!mb) return 'a large drawing takes a few minutes';
+  if (mb < 20) return `${mb} MB — usually well under a minute`;
+  if (mb < 80) return `${mb} MB — a few minutes`;
+  if (mb < 200) return `${mb} MB — a drawing this size takes twenty to forty minutes a stage. It is working; leave it.`;
+  return `${mb} MB — a drawing this size can take an hour a stage. It is working; leave it.`;
 }
 function renderBusy() {
   if (!current || !current.running || tab !== 'review' || rows.length) return;

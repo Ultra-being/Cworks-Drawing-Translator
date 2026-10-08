@@ -198,8 +198,13 @@ class Job:
         job = cls(time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6], root)
         fmt = "pdf" if (name or dxf_path).lower().endswith(".pdf") else "dxf"
         shutil.copy(dxf_path, job.dir / f"input.{fmt}")
+        # How big it is, so the app can say how long this will take instead of
+        # telling everyone "a few minutes". On a 179 MB drawing that was wrong
+        # by a factor of ten and made a perfectly normal run look broken.
+        size_mb = round((job.dir / f"input.{fmt}").stat().st_size / 1e6, 1)
         job.meta = {"id": job.id, "name": name or Path(dxf_path).name, "source": source, "target": target, "fmt": fmt,
                     "client": client.strip() or "Unfiled", "project": project.strip() or "General",
+                    "size_mb": size_mb,
                     "status": "created", "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "stages": {}}
         job.save_meta()
         return job

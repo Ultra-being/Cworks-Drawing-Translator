@@ -95,3 +95,21 @@ Edit, save, run the next job — no restart needed.
 - **Japanese output shows boxes in the viewer**: the viewer lacks a Japanese font. AutoCAD with the `extfont2` bigfont shows it correctly.
 
 Questions → Allan.
+
+## Signing in
+
+Logins are set on the server, not in the app. The setting is `DXFT_USERS` and it takes one
+account per line:
+
+    allan:their-password
+    staff:another-password
+
+A comma between them works too, but **only if no password contains a comma** — a comma is
+what separates one account from the next, so one inside a password cuts it in half and the
+sign-in then fails with nothing to show for it. One per line avoids the question. A colon
+inside a password is fine.
+
+To check the setting was read at all, open `/healthz` in a browser. It says how many logins
+it found, and never who they are. `"logins": 0` means the setting is missing or could not be
+read, and the app will let anyone in; `"logins": 2` means it read two accounts and a failed
+sign-in is a wrong name or password.

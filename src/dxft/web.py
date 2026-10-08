@@ -42,9 +42,23 @@ from starlette.responses import Response
 
 
 def _users() -> dict[str, str]:
-    raw = os.environ.get("DXFT_USERS", "").strip()
+    """name:password pairs, separated by a newline or a comma.
+
+    Commas came first and are a trap: a generated password very often has one
+    in it, and splitting on commas cuts that password in half, so the sign-in
+    fails with nothing to see. A value spread over several lines is read a
+    line at a time instead, which is the safer way to write it. Only the first
+    colon separates, so a password may contain those freely.
+
+    The document translator was fixed on 6 October and this was not, which is
+    exactly the sort of thing that bites a week later: a member of staff whose
+    password had a comma in it simply could not get in here.
+    """
+    raw = os.environ.get("DXFT_USERS", "").strip().strip('"').strip("'")
+    lines = [l for l in raw.splitlines() if l.strip()]
+    pairs = lines if len(lines) > 1 else raw.split(",")
     out = {}
-    for pair in raw.split(","):
+    for pair in pairs:
         if ":" in pair:
             u, p = pair.split(":", 1)
             out[u.strip()] = p.strip()
@@ -81,7 +95,12 @@ def debug_fonts():
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "version": os.environ.get("RENDER_GIT_COMMIT", "local")[:7]}
+    """Open, so it can be checked from outside. It says how many logins were
+    read, never who they are: the count alone settles whether a sign-in that
+    will not work is a wrong password or a setting that never parsed, and
+    "logins": 0 says plainly that the app is open to anyone."""
+    return {"ok": True, "version": os.environ.get("RENDER_GIT_COMMIT", "local")[:7],
+            "logins": len(_users())}
 
 _running: dict[str, dict] = {}   # job id -> {"step": ..., "error": ...}
 _lock = threading.Lock()

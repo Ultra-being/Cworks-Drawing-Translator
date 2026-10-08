@@ -7,7 +7,18 @@ services:
     # pixels went over it, the container was killed from outside -- so Python
     # never saw a MemoryError and never got to say anything -- and every
     # request in flight came back as a server that had gone away.
-    plan: standard
+    #
+    # 2 GB could not be relied on either, and failed less honestly: it worked.
+    # Opening a 142 MB drawing takes 1.05 GB and holds it for the whole job,
+    # and writing it peaks at 1.09 GB. That fits beside the app and a preview
+    # only when nothing else is going on, so the same drawing took ten minutes
+    # one day and an hour the next -- the machine falling back on the disk for
+    # memory, at about twenty times the cost. Nothing logged, nothing failed,
+    # no way for staff to tell a slow job from a broken one.
+    #
+    # 4 GB leaves room for the gigabyte a large set costs, and the second CPU
+    # means drawing a preview no longer competes with a translation.
+    plan: pro
     region: singapore
     healthCheckPath: /healthz
     disk:

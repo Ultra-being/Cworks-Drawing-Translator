@@ -142,6 +142,33 @@ running. Check that before deciding anything is stuck.
 If a stage is genuinely hung, press **Unstick**. It clears the stage without losing any
 work, and you can run it again.
 
+### The same drawing took ten minutes yesterday and an hour today
+
+Not the drawing. The server ran short of memory.
+
+Writing a 142 MB drawing needs about **1.1 GB** at its peak. The server has **2 GB in
+total**, shared with the app itself, your sign-in, and any previews it has drawn. When it
+fits, the stage takes minutes. When it does not, the machine starts using the disk as
+memory and the identical work takes roughly **twenty times longer**. Nothing is broken and
+nothing is lost — it is slow because it has run out of room.
+
+This is why the same file can be quick one day and crawl the next: what matters is how much
+was already in use when you pressed the button, not how big the drawing is. A *larger*
+drawing on a fresh server beats a smaller one on a busy one.
+
+**What to do:** let it finish. Stopping and restarting makes it worse, because reading the
+drawing again is itself one of the expensive steps.
+
+**What to avoid:** do not open previews of a big drawing while another one is translating,
+and do not run two large drawings at once. Both are the memory this stage needs.
+
+**How to tell this is what happened:** open **Help** on the job and ask how long each stage
+took. Every stage now records its own time and the most memory the app had taken. A stage
+that took far longer than usual with a peak near the machine's limit is this, not a fault.
+
+If it keeps happening, the answer is a bigger server, not a change to the drawing. Tell the
+founder, with the stage times from the Help dialog.
+
 ### An upload seemed not to happen
 
 The upload has its own progress bar. If it filled and nothing appeared, the file is

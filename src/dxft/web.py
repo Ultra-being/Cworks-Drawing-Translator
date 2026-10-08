@@ -20,6 +20,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
+from . import pipeline as pipe
 from .pipeline import Job, JOBS, Memory, pricing, cost_usd
 from . import pdfdoc
 from . import preview
@@ -99,8 +100,13 @@ def healthz():
     read, never who they are: the count alone settles whether a sign-in that
     will not work is a wrong password or a setting that never parsed, and
     "logins": 0 says plainly that the app is open to anyone."""
+    # The machine as well, because "why is the server slower than a laptop"
+    # cost an afternoon to answer and the answer was 2 GB of RAM against a
+    # peak need of 1.1 GB. It is on the open endpoint on purpose: it names no
+    # drawing, no customer and no login, and being able to read it without
+    # signing in is what makes it useful when something is wrong.
     return {"ok": True, "version": os.environ.get("RENDER_GIT_COMMIT", "local")[:7],
-            "logins": len(_users())}
+            "logins": len(_users()), "machine": pipe.machine()}
 
 _running: dict[str, dict] = {}   # job id -> {"step": ..., "error": ...}
 _lock = threading.Lock()
@@ -654,7 +660,10 @@ def _diagnostics(job_id: str, with_text: bool = False) -> str:
     job = _job(job_id)
     m = job.meta
     run = _running.get(job_id, {})
+    mc = pipe.machine()
     L = [f"app version: {os.environ.get('RENDER_GIT_COMMIT', 'local')[:7]}",
+         f"machine: {mc.get('ram_mb')} MB RAM, {mc.get('cpus')} CPU, "
+         f"most used so far {mc.get('peak_mb')} MB",
          f"job: {job_id}  file: {m.get('name')}  format: {m.get('fmt')}",
          f"languages: {m.get('source')} to {m.get('target')}",
          f"filed under: {m.get('client') or 'Unfiled'} / {m.get('project') or 'General'}",

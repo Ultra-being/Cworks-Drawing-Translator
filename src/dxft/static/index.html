@@ -544,10 +544,21 @@ function renderHeader() {
   // A running stage shows how long it has been going. "Translate… 3m 20s" is a
   // working app; a pulsing dot with no number looks broken after about a minute.
   const elapsed = elapsedText;
+  // How long a finished stage took, shown on the stage itself. Staff asked
+  // every time whether an hour was normal; the only honest answer was that
+  // nobody had written it down. Now the drawing says.
+  const took = (v) => {
+    if (!v || v.seconds == null) return '';
+    const sec = v.seconds;
+    const t = sec < 90 ? Math.round(sec) + 's'
+            : sec < 3600 ? Math.round(sec / 60) + ' min'
+            : (sec / 3600).toFixed(1) + ' hr';
+    return ` · <span class="sub" style="color:var(--mute)">took ${t}</span>`;
+  };
   const st = (name, label, info) => {
     const running = run === name;
     const text = running ? (elapsed(current.runningFor) || 'working') : info;
-    return `<div class="stage ${running?'run':s[name]?'done':''}">${label}${text?' · '+text:''}</div>`;
+    return `<div class="stage ${running?'run':s[name]?'done':''}">${label}${text?' · '+text:''}${running?'':took(s[name])}</div>`;
   };
   const inv = s.inventory, pr = s.prepare, tr = s.translate, pa = s.patch;
   const busy = !!run;

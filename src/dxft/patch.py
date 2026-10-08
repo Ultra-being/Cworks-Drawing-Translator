@@ -383,8 +383,25 @@ def _count_text(doc: Drawing) -> int:
     return sum(1 for space in _all_spaces(doc) for e in space if e.dxftype() in ("TEXT", "MTEXT"))
 
 
-def verify(original_path: str, output_path: str, added_text: int = 0) -> Verification:
+def measure_doc(doc: Drawing) -> dict:
+    """The three numbers verify compares, taken from a drawing already open.
+
+    Stage 1 has the input open anyway, so taking them there and keeping them
+    saves verify re-reading the input later purely to learn what it already
+    knew. On a large set that is a whole pass off the slowest stage.
+    """
+    n, h = _geometry_fingerprint(doc)
+    return {"entities": n, "geometry": h, "text": _count_text(doc)}
+
+
+def verify(original_path: str, output_path: str, added_text: int = 0,
+           before: dict | None = None) -> Verification:
     """Prove the drawing did not change, one file at a time.
+
+    `before` is the input's numbers from measure_doc, taken at stage 1. Given
+    them, the input is not opened again: the same comparison is made against
+    the output alone. Both sides are measured by the same code off a document
+    opened by the same loader, so the numbers mean what they always did.
 
     Both used to be open at once, which on a large drawing is two copies of
     it in memory while the patched one is very often still held by the
@@ -406,7 +423,10 @@ def verify(original_path: str, output_path: str, added_text: int = 0) -> Verific
         gc.collect()
         return n, h, t
 
-    na, ha, ta = measure(original_path)
+    if before:
+        na, ha, ta = before["entities"], before["geometry"], before["text"]
+    else:
+        na, ha, ta = measure(original_path)
     nb, hb, tb = measure(output_path)
     problems = []
     if na != nb:

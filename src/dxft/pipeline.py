@@ -35,6 +35,62 @@ from . import pdfdoc
 JOBS = Path("jobs")
 
 
+def peak_mb() -> int:
+    """The most memory this process has held, in MB.
+
+    A whole-process high-water mark, not a per-stage one: it only ever goes
+    up. That is the number worth having, because the failure it explains is
+    the machine running out of room, and what matters there is the worst
+    moment rather than the current one.
+    """
+    import resource
+    import sys
+    r = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    # ru_maxrss is kilobytes on Linux and bytes on macOS. The server is Linux
+    # and the laptop is not, so a figure that is wrong by 1024 on one of them
+    # is worse than no figure at all.
+    return round(r / (1024 * 1024)) if sys.platform == "darwin" else round(r / 1024)
+
+
+def _cpu_limit() -> float | None:
+    """CPUs this container may actually use, not the host's.
+
+    os.cpu_count() inside a container reports the whole machine -- it would
+    have said eight on a service entitled to one. A number that is wrong by
+    eight times is worse than no number, because it is believed.
+    """
+    try:
+        with open("/sys/fs/cgroup/cpu.max") as fh:
+            quota, period = fh.read().split()
+        return None if quota == "max" else round(int(quota) / int(period), 2)
+    except Exception:
+        return os.cpu_count()
+
+
+def machine() -> dict:
+    """What the app is running on: RAM, CPUs, and what it has used.
+
+    Here so that "why is the server slower than a laptop" is answerable by
+    looking, rather than by reading a billing page. A 142 MB drawing needs
+    about 1.1 GB to patch; on a 2 GB machine that fits only while nothing
+    else does, which is how the same drawing took ten minutes once and an
+    hour the next time.
+    """
+    out: dict = {"cpus": _cpu_limit(), "peak_mb": peak_mb()}
+    try:
+        # cgroup v2, which is what a container's real limit is set through.
+        # os.sysconf would report the host's memory, not this container's.
+        with open("/sys/fs/cgroup/memory.max") as fh:
+            v = fh.read().strip()
+        out["ram_mb"] = None if v == "max" else round(int(v) / (1024 * 1024))
+    except Exception:
+        try:
+            out["ram_mb"] = round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / (1024 * 1024))
+        except Exception:
+            out["ram_mb"] = None
+    return out
+
+
 def pricing() -> dict:
     """USD per million tokens per model + JPY rate, from workspaces/pricing.json."""
     import os
@@ -232,15 +288,28 @@ class Job:
     def output_path(self) -> Path:
         return self.dir / f"output.{self.fmt}"
 
+    def _stage_start(self) -> None:
+        self._t0 = time.monotonic()
+
     def _stage_done(self, name: str, **info) -> None:
         m = self.meta
-        m["stages"][name] = {"done_at": time.strftime("%Y-%m-%dT%H:%M:%S"), **info}
+        # How long the stage took, and how much memory the process had taken at
+        # its worst. Both are here because an hour-long patch on a 142 MB
+        # drawing could not be told apart from a broken one: the job knew only
+        # that it had started. A stage that is slow because the machine is out
+        # of room shows as a peak near the machine's limit, which is the one
+        # thing that distinguishes it from a stage that is slow for any other
+        # reason.
+        took = round(time.monotonic() - self._t0, 1) if getattr(self, "_t0", None) else None
+        m["stages"][name] = {"done_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                             "seconds": took, "peak_mb": peak_mb(), **info}
         m["status"] = name
         self._meta = m
         self.save_meta()
 
     # ── stages ──
     def inventory(self) -> dict:
+        self._stage_start()
         if self.fmt == "pdf":
             doc = pdfdoc.open_pdf(str(self.input_path))
             items, walls, geo = pdfdoc.inventory(doc)
@@ -263,7 +332,7 @@ class Job:
         _w(self.dir / "inventory.json", {"summary": summ, "audit_errors": audit_errors, "version": doc.dxfversion,
                                           "items": [it.to_dict() for it in items], "walls": walls,
                                           "floors": floors, "frames": frames, "links": links,
-                                          "layouts": layouts})
+                                          "layouts": layouts, "measure": pt.measure_doc(doc)})
         self._stage_done("inventory", **summ)
         return summ
 
@@ -280,6 +349,7 @@ class Job:
         layout.set_measure_font()
 
     def prepare(self) -> dict:
+        self._stage_start()
         self._measure_font()
         data = _r(self.dir / "inventory.json")
         items = [inv.TextItem(**d) for d in data["items"]]
@@ -293,6 +363,7 @@ class Job:
         return info
 
     def translate(self, mode: str = "claude", model: str | None = None, on_progress=None) -> dict:
+        self._stage_start()
         self._measure_font()
         data = _r(self.dir / "segments.json")
         segments = [prep.Segment(**s) for s in data["segments"]]
@@ -435,6 +506,7 @@ class Job:
         return n
 
     def patch(self, only_approved: bool = True, learn: bool = False) -> dict:
+        self._stage_start()
         self._measure_font()
         inv_data = _r(self.dir / "inventory.json")
         items = [inv.TextItem(**d) for d in inv_data["items"]]
@@ -471,7 +543,12 @@ class Job:
             # machine that had room for two.
             del doc
             gc.collect()
-            ver = pt.verify(str(self.input_path), str(out), added_text=res.added_lines)
+            # The input's numbers were taken at stage 1 and have not changed
+            # since, so verify opens the output only. One pass of four off the
+            # stage, and the pass dropped is the one that re-read a 142 MB file
+            # to work out something already written down.
+            ver = pt.verify(str(self.input_path), str(out), added_text=res.added_lines,
+                            before=inv_data.get("measure"))
         report = self._report(res, ver, rows)
         (self.dir / "report.md").write_text(report, encoding="utf-8")
         info = {"patched": res.patched, "skipped": len(res.skipped), "narrowed": res.width_factors, "overflow": len(res.overflow),

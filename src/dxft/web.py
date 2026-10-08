@@ -850,4 +850,18 @@ def serve(host: str = "127.0.0.1", port: int = 8765, jobs_root: Path | None = No
         ROOT = Path(jobs_root).resolve()
     ROOT.mkdir(parents=True, exist_ok=True)
     import uvicorn
-    uvicorn.run(app, host=host, port=port, log_level="warning")
+    # One worker, always, whatever WEB_CONCURRENCY says.
+    #
+    # Render sets WEB_CONCURRENCY from the machine's CPU count, so moving from
+    # one CPU to two set it to 2 and the app would not start at all: uvicorn
+    # cannot fork workers from an app object, only from an import string, and
+    # it exits with status 3. That is how it surfaced, but more than one worker
+    # was never safe here:
+    #   - which job is running is held in memory, so a second worker would
+    #     answer "nothing is running" about a job the first one is working on;
+    #   - both would write the same job's stage files on the one shared disk;
+    #   - each holds its own copy of an open drawing, and a large set costs a
+    #     gigabyte, which is the memory this machine was just enlarged to have.
+    # The second CPU is still worth having: it lets a preview be drawn without
+    # competing with a translation for processor time.
+    uvicorn.run(app, host=host, port=port, log_level="warning", workers=1)

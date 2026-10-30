@@ -168,6 +168,32 @@ def _affordable(space, width_px: int) -> int:
     return width_px
 
 
+# A picture is as wide as it was asked for and as tall as the shape of the area
+# dragged, and nothing limited the second. Dragging a tall narrow rectangle --
+# a column of a sheet, a riser, one side of a section -- asked for a picture
+# 4000 wide and tens of thousands of pixels tall. A 3 MB drawing and one
+# ordinary drag measured 4000 x 94,285: 1.5 GB of pixels, on top of the drawing
+# already in memory. The machine has 4 GB, so it was killed, and every request
+# in flight died with it. What the reader sees is "the server went away and is
+# coming back", on whatever sheet they happened to be looking at, which is why
+# this looked like a problem with the drawing rather than with the zoom.
+#
+# A whole square sheet at the default width is 16 megapixels. That is what a
+# picture may cost. Past it both sides come down together, so the area drawn is
+# still exactly the area dragged, drawn a little coarser rather than not at all.
+MAX_PIXELS = 16_000_000
+
+
+def _within_budget(width_px: int, ar: float) -> tuple[int, int]:
+    """How wide and tall to draw an area of this shape."""
+    height_px = width_px * ar
+    if width_px * height_px > MAX_PIXELS:
+        shrink = (MAX_PIXELS / (width_px * height_px)) ** 0.5
+        width_px, height_px = width_px * shrink, height_px * shrink
+    # Agg cannot address past 2^16 on a side, whatever the area comes to.
+    return max(int(width_px), 1), max(min(int(height_px), 65_000), 1)
+
+
 def render(dxf_path: Path, png_path: Path, window: tuple[float, float, float, float] | None = None,
            width_px: int = 4000, layout: str | None = None) -> tuple[float, float, float, float]:
     """Render model space, or a named paper layout, to PNG. Returns the window
@@ -203,7 +229,8 @@ def render(dxf_path: Path, png_path: Path, window: tuple[float, float, float, fl
         window = (x0, y0, x1, y1)
     x0, y0, x1, y1 = window
     ar = max(y1 - y0, 1e-9) / max(x1 - x0, 1e-9)
-    fig.set_size_inches(width_px / dpi, max(width_px * ar / dpi, 1))
+    width_px, height_px = _within_budget(width_px, ar)
+    fig.set_size_inches(width_px / dpi, max(height_px / dpi, 1))
     ax.set_xlim(x0, x1); ax.set_ylim(y0, y1); ax.set_aspect("equal", adjustable="datalim")
     ax.set_xlim(x0, x1); ax.set_ylim(y0, y1)
     png_path.parent.mkdir(parents=True, exist_ok=True)

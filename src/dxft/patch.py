@@ -34,12 +34,40 @@ JA_FONT = ("txt", "extfont2")  # SHX shape font + Japanese bigfont
 EN_FONT = os.environ.get("DXFT_EN_FONT", "arial.ttf")
 JA_CAPABLE_FONTS = {"txt", "msgothic.ttc", "msmincho.ttc", "meiryo.ttc", "yugothic.ttf", "notosanscjk", "extfont", "extfont2", "bigfont.shx"}
 
+# A font named inside the text beats the style's font, and the drawings this
+# tool is given are full of them: Russian CAD writes \fTimes New Roman|b1|i0|c0
+# around a heading, a table, a whole title block. Putting the style right is
+# not enough while that code still says Times New Roman, which has no Japanese
+# glyphs: every character comes back an empty box, and a row of boxes at a
+# heading's size reads as a solid black bar. One batch of 28 sheets carried
+# 1,200 of them. Only the face is swapped; bold, italic and pitch are kept, so
+# a heading stays a heading.
+JA_INLINE_FONT = os.environ.get("DXFT_JA_FONT", "MS Gothic")
+F_CODE = re.compile(r"\\[fF]([^;|]*)((?:\|[^;|]*)*);")
+_JA_FACES = ("gothic", "mincho", "meiryo", "yu ", "yugothic", "noto", "sans cjk", "hiragino", "ms p")
+
+
+def _face_has_ja(name: str) -> bool:
+    n = name.strip().lower()
+    return bool(n) and any(f in n for f in _JA_FACES)
+
+
+def _ja_inline_fonts(raw: str, result: PatchResult) -> str:
+    """Point every font named inside an MTEXT string at a Japanese face."""
+    def swap(m):
+        if _face_has_ja(m.group(1)):
+            return m.group(0)
+        result.inline_fonts += 1
+        return f"\\f{JA_INLINE_FONT}{m.group(2)};"
+    return F_CODE.sub(swap, raw)
+
 
 @dataclass
 class PatchResult:
     patched: int = 0
     skipped: list[str] = field(default_factory=list)   # handles not found / not approved
     style_changes: list[str] = field(default_factory=list)
+    inline_fonts: int = 0     # fonts named inside the text, re-pointed at a Japanese face
     width_factors: int = 0
     overflow: list[str] = field(default_factory=list)  # segment ids that still do not fit
     added_lines: int = 0      # lines written under a cell that could not hold its text on one
@@ -115,6 +143,11 @@ def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved
             result.skipped.extend(seg.handles)
             continue
         text = unmark_codes(final, seg.codes) if seg.codes else final
+        # Before anything is measured or written: the codes are back in the
+        # string now, and one of them may name a font that cannot draw the
+        # language being written into it.
+        if target == "ja":
+            text = _ja_inline_fonts(text, result)
         if not cjk:
             text = latinize(text)
         kind = seg.kinds[0] if seg.kinds else ""

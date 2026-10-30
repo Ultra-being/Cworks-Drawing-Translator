@@ -554,7 +554,8 @@ class Job:
         info = {"patched": res.patched, "skipped": len(res.skipped), "narrowed": res.width_factors, "overflow": len(res.overflow),
                 "added_lines": res.added_lines, "ascii_forms": res.widened_forms,
                 "boxes_pulled_in": res.boxed,
-                "style_changes": res.style_changes, "verified": ver.ok, "problems": ver.problems}
+                "style_changes": res.style_changes, "inline_fonts": res.inline_fonts,
+                "verified": ver.ok, "problems": ver.problems}
         # A fresh output makes any copy somebody already took out of date, so
         # the job stops counting as collected and shows as live again.
         m = self.meta
@@ -679,6 +680,7 @@ class Job:
               f"{next((r['display'][:70] for r in rows if r['id'] == i), '')!r}" for i in res.overflow],
             f"- Text styles changed for the target font: {len(res.style_changes)}",
             *[f"  - {x}" for x in res.style_changes],
+            f"- Fonts named inside the text, re-pointed at a Japanese face: {res.inline_fonts}",
             f"- Verification: geometry unchanged {'yes' if ver.ok else 'NO'};"
             f" line-work {ver.entities_before} before, {ver.entities_after} after;"
             f" text {ver.text_before} before, {ver.text_after} after",

@@ -4,7 +4,8 @@
 - Dimension values, elevations (+0.000, FL+1,200), angles, percentages
 - Units: mm, m, m², kg, kN, MPa, V, A, W, kW, Hz, φ, Ø, DN, PN
 - Codes: sheet numbers (E-01, A-101), detail references (1/A-5), grid lines (X1, Y2, ①), room numbers, equipment tags (AC-1, P-2, EF-3), cable types (CV, IV, EM-CE), circuit numbers, model numbers, standards (JIS C 8305, ГОСТ 21.101-97, ГОСТ 2.304)
-- Latin-script company and product names
+- Company and product names, in any script. A Cyrillic model code is a name, not words: С2000-БКИ, С2000М, ШРН-2/200, ДПЛС, ШПС stay exactly as written.
+- **Never expand the letters of a model code.** С2000-БКИ is a Bolid device. It is not "Бюро кредитных историй" and must not come back as "С2000-БКИ (ロシア信用情報局)". The same letters mean different things in different trades, and a drawing is not the place to guess. A code you cannot identify is left alone, which is always correct: the reader knows the equipment.
 - Special AutoCAD codes: %%C (diameter), %%D (degree), %%P (plus-minus), %%U (underline)
 
 ## Russian standards and set codes (transliterate, do not translate)

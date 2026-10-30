@@ -76,6 +76,27 @@ the file to re-export from DWG, and to check the sheets look right in the DXF be
 sending it. Opening their DWG in the free Autodesk viewer tells you in a minute whether
 the content is there.
 
+### Japanese comes out as empty boxes, or a solid black bar
+
+The translation is fine. The font cannot draw it.
+
+A drafter can name a font inside a piece of text, and that beats the style the text
+sits in. Russian drawings do this constantly, usually Times New Roman around a heading,
+a table or a title block. Times New Roman has no Japanese characters, so each one is
+drawn as an empty box. A whole heading of them at title size is a solid black bar, which
+is what it looks like before you zoom in.
+
+Fixed on 30 October 2026, in two places: the drawing that goes out now names a Japanese
+font, and the preview ignores a named font on any text that has Japanese in it, so the
+picture shows what the drawing will show.
+
+**A drawing translated before that date is not wrong, only unreadable.** Press
+**Re-patch**. Nothing is re-translated and nothing is charged. The words were already
+right; they come back in a font that can draw them.
+
+The patch line and the report say how many were re-pointed: "Fonts named inside the
+text, re-pointed at a Japanese face".
+
 ### Lots of the original language is still showing
 
 Three different causes, and they look identical on screen.

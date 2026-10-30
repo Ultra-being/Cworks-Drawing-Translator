@@ -121,6 +121,37 @@ def _point_cjk_styles_at_cjk_font(doc) -> list[str]:
     return changed
 
 
+def _drop_inline_fonts(doc) -> int:
+    r"""Preview only: take out any font named inside a string that holds CJK,
+    so the style's font applies instead. The document on disk is never touched.
+
+    An MTEXT can name its own font (\fMS Gothic|b1|i0;), and that beats the
+    style. The patcher points those at a Japanese face for the drawing that
+    goes out, which is right for AutoCAD and useless here: this machine has no
+    MS Gothic, so the reader would still be shown boxes and would think the
+    translation had failed. Pointing the styles at the bundled CJK font is not
+    enough on its own while a code in the text says otherwise.
+    """
+    import re
+    cjk = re.compile(r"[぀-ヿ一-鿿ｦ-ﾟ]")
+    f_code = re.compile(r"\\[fF][^;]*;")
+    n = 0
+    spaces = [doc.modelspace()] + [lo for lo in doc.layouts if lo.name != "Model"] + list(doc.blocks)
+    for space in spaces:
+        for e in space:
+            if e.dxftype() != "MTEXT":
+                continue
+            try:
+                raw = e.text
+                if not f_code.search(raw) or not cjk.search(raw):
+                    continue
+                e.text = f_code.sub("", raw)
+                n += 1
+            except Exception:
+                continue
+    return n
+
+
 def _stop_phantom_wrapping(doc) -> int:
     """Preview only: an MTEXT with reference width 0 never wraps — AutoCAD draws
     it on one line however long it is. The drawing add-on disagrees: give it a
@@ -211,6 +242,7 @@ def render(dxf_path: Path, png_path: Path, window: tuple[float, float, float, fl
 
     doc, _ = recover.readfile(str(dxf_path))
     _point_cjk_styles_at_cjk_font(doc)
+    _drop_inline_fonts(doc)
     _stop_phantom_wrapping(doc)
     space = doc.modelspace()
     width_px = _affordable(space, width_px)

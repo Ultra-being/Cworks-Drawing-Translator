@@ -359,6 +359,25 @@ class Job:
         _w(self.dir / "segments.json", {"segments": [s.to_dict() for s in segments], "handle_map": handle_map, "skipped": skipped})
         info = {"segments": len(segments), "entities": len(handle_map), "skipped": len(skipped),
                 "paragraphs": sum(1 for s in segments if s.lines > 1)}
+        # Nothing to translate, in a drawing plainly full of text, is almost
+        # always the source language set to the wrong one. Every stage then
+        # succeeds: nothing is prepared, nothing is translated, nothing is
+        # patched, and verify reports geometry unchanged because it is. The
+        # drawing comes back untouched with no error anywhere, which looks
+        # exactly like the app not working and is impossible to act on. Say it
+        # here, where it is still cheap to put right.
+        if not segments and items:
+            from collections import Counter
+            found = Counter(i.lang for i in items if i.lang and i.lang != "none")
+            other = [(n, lg) for lg, n in found.items() if lg not in langs]
+            if other:
+                n, lang = max(other)
+                src_name = tr.LANG_NAME.get(source, source)
+                info["nothing_to_translate"] = (
+                    f"This job is set to translate from {src_name}, and the drawing holds no "
+                    f"{src_name} text. It holds {n} pieces of {tr.LANG_NAME.get(lang, lang)}. "
+                    f"Make a new job with the source language set to {tr.LANG_NAME.get(lang, lang)}. "
+                    f"Nothing has been charged.")
         self._stage_done("prepare", **info)
         return info
 

@@ -577,6 +577,9 @@ function renderHeader() {
       interrupted — a deploy restarts the server and stops whatever was running, and the job is
       left looking idle with nothing to say so. Press <b>Re-read drawing</b> to start it. Nothing
       has been lost and nothing has been charged.</div>` : ''}
+    ${pr?.nothing_to_translate && !busy ? `<div class="err" style="background:#fef3c7;border:1px solid #f0c674;color:var(--ink)">
+      <b>There is nothing here in the language this job translates from.</b>
+      ${esc(pr.nothing_to_translate)}</div>` : ''}
     <div class="stages">
       ${st('inventory','1 Read', inv ? `${inv.strings} pieces of text, ${inv.by_lang?.[current.source]||0} ${langName(current.source)}${inv.links?.length ? ', ' + inv.links.length + ' linked file' + (inv.links.length===1?'':'s') + ' not inside' : ''}` : '')}
       ${st('prepare','2 Prepare', pr ? `${pr.segments} different${pr.paragraphs?', '+pr.paragraphs+' paragraphs':''}` : '')}

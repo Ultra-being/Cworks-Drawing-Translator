@@ -97,6 +97,23 @@ right; they come back in a font that can draw them.
 The patch line and the report say how many were re-pointed: "Fonts named inside the
 text, re-pointed at a Japanese face".
 
+### The drawing comes back untranslated, and nothing says why
+
+Check the source language in the line under the drawing name: it reads `ja -> en`.
+
+If the source is set to a language the drawing does not contain, every stage still
+succeeds. Read finds the text. Prepare finds nothing to do, because nothing is in the
+language it was told to look for. Translate translates nothing, patch writes nothing, and
+verify says geometry unchanged, because it is. The drawing comes back untouched and no
+stage has failed, which looks exactly like the app being broken.
+
+The Read chip is the tell. It says `1023 pieces of text, 0 Japanese`. A zero there means
+the source is wrong.
+
+Since 30 October 2026 the job says so in a yellow bar, naming what the drawing actually
+holds. Make a new job with the right source language. Nothing was charged for the wrong
+one: no translation was ever requested.
+
 ### Lots of the original language is still showing
 
 Three different causes, and they look identical on screen.

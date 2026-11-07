@@ -539,6 +539,22 @@ def _walk(doc: Drawing, space: Iterable, where: str, out: list[TextItem]) -> Non
                         handle=f"{e.dxf.handle}:{idx}", kind="TABLE_CELL", where=where, layer=e.dxf.layer, style="",
                         raw=value, plain=plain, lang=detect_lang(plain), block_owner=e.dxf.get("geometry", ""),
                     ))
+            elif t == "ATTDEF":
+                # A constant attribute is drawn straight from the block
+                # definition: AutoCAD makes no ATTRIB for it at each insert,
+                # so the INSERT branch above never sees it and nothing else
+                # collects it. A variable one is ignored here, because the
+                # ATTRIB on each insert carries the value that is drawn.
+                if int(e.dxf.get("flags", 0) or 0) & 2 and (e.dxf.text or "").strip():
+                    out.append(TextItem(
+                        handle=e.dxf.handle, kind="ATTDEF", where=where, layer=e.dxf.layer,
+                        style=e.dxf.style, raw=e.dxf.text, plain=e.dxf.text,
+                        lang=detect_lang(e.dxf.text), height=float(e.dxf.height),
+                        width_factor=float(e.dxf.width), rotation=float(e.dxf.rotation),
+                        x=float(e.dxf.insert.x), y=float(e.dxf.insert.y), tag=e.dxf.tag,
+                        halign=int(e.dxf.halign), ax=_align_x(e),
+                        vertical=_is_vertical(doc, e.dxf.style),
+                    ))
             elif t == "TOLERANCE":
                 txt = e.dxf.get("content", "") or ""
                 if txt.strip():

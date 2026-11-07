@@ -246,7 +246,8 @@ def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved
                 result.skipped.append(handle)
                 continue
             k = e.dxftype()
-            if k in ("TEXT", "ATTRIB", "DIMENSION", "ARC_DIMENSION", "LARGE_RADIAL_DIMENSION"):
+            if k in ("TEXT", "ATTRIB", "ATTDEF", "DIMENSION",
+                     "ARC_DIMENSION", "LARGE_RADIAL_DIMENSION"):
                 e.dxf.text = text
             elif k == "TOLERANCE":
                 e.dxf.content = text

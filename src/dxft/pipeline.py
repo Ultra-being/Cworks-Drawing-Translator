@@ -330,6 +330,7 @@ class Job:
         summ["links"] = links
         summ["layouts"] = len(layouts)
         summ["unreachable"] = inv.unreachable_text(doc)
+        summ["uncollected"] = inv.uncollected_text(doc)
         _w(self.dir / "inventory.json", {"summary": summ, "audit_errors": audit_errors, "version": doc.dxfversion,
                                           "items": [it.to_dict() for it in items], "walls": walls,
                                           "floors": floors, "frames": frames, "links": links,

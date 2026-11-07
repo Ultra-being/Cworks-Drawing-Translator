@@ -635,14 +635,89 @@ UNREACHABLE = {
 }
 
 
+# Every type the dispatch in _walk actually reads. Anything outside this set
+# and outside UNREACHABLE is checked for text it might be hiding.
+HANDLED_TYPES = {
+    "TEXT", "MTEXT", "ATTRIB", "ATTDEF", "INSERT", "ACAD_TABLE",
+    "DIMENSION", "ARC_DIMENSION", "LARGE_RADIAL_DIMENSION",
+    "MULTILEADER", "MLEADER", "TOLERANCE",
+}
+
+# Attributes that hold words on entities that hold words.
+_TEXT_ATTRS = ("text", "content", "default_content", "insert_text")
+
+
+def _peek_text(e) -> str:
+    """Any string this entity is carrying, if it carries one.
+
+    Looking only at DXF attributes is not enough, and the multileader proves
+    it: its words live in the entity's context object, so a check of e.dxf
+    finds nothing and the alarm stays silent on exactly the bug it exists to
+    catch. The accessors below are tried as well.
+    """
+    for attr in _TEXT_ATTRS:
+        try:
+            if e.dxf.hasattr(attr):
+                v = e.dxf.get(attr, "")
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+        except Exception:
+            continue
+    for getter in ("get_mtext_content", "plain_text"):
+        fn = getattr(e, getter, None)
+        if callable(fn):
+            try:
+                v = fn()
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+            except Exception:
+                continue
+    try:
+        v = getattr(e, "text", "")
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def uncollected_text(doc: Drawing) -> list[dict]:
+    """Entity types we do not read, that are nevertheless holding words.
+
+    The multileader bug was invisible for months because the drawing was the
+    only thing that knew. This is the alarm for the next one: it does not
+    need to know what the type is, only that something in the drawing is
+    carrying a string and nothing collected it. If this ever reports
+    anything, the type belongs in the dispatch in _walk.
+    """
+    found: dict[str, dict] = {}
+    for where, space in _named_spaces(doc):
+        for e in space:
+            t = e.dxftype()
+            if t in HANDLED_TYPES or t in UNREACHABLE:
+                continue
+            txt = _peek_text(e)
+            if not txt:
+                continue
+            row = found.setdefault(t, {"kind": t, "count": 0, "where": [], "sample": txt[:60]})
+            row["count"] += 1
+            if where not in row["where"]:
+                row["where"].append(where)
+    return sorted(found.values(), key=lambda r: -r["count"])
+
+
+def _named_spaces(doc: Drawing):
+    out = [("model", doc.modelspace())]
+    out += [(f"paper:{lo.name}", lo) for lo in doc.layouts if lo.name != "Model"]
+    out += [(f"block:{b.name}", b) for b in doc.blocks
+            if b.name not in ("*Model_Space", "*Paper_Space")]
+    return out
+
+
 def unreachable_text(doc: Drawing) -> list[dict]:
     """Entities holding text no DXF library can rewrite, with where they are."""
     found: dict[str, dict] = {}
-    spaces = [("model", doc.modelspace())]
-    spaces += [(f"paper:{lo.name}", lo) for lo in doc.layouts if lo.name != "Model"]
-    spaces += [(f"block:{b.name}", b) for b in doc.blocks
-               if b.name not in ("*Model_Space", "*Paper_Space")]
-    for where, space in spaces:
+    for where, space in _named_spaces(doc):
         for e in space:
             t = e.dxftype()
             if t not in UNREACHABLE:

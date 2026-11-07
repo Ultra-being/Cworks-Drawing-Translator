@@ -521,6 +521,22 @@ const elapsedText = (secs) => secs == null ? '' : secs < 60 ? `${secs}s` : `${Ma
 // "C:\Users\someone\Desktop\..." points at a machine that is not theirs and
 // probably has not existed for years -- it is a dead link left in the file,
 // and listing thirty of them as things to ask for is worse than useless.
+function uncollectedNotice(rows) {
+  // The alarm for the next MULTILEADER. Something in this drawing is holding
+  // words and nothing read them. Staff cannot fix it; they can report it,
+  // which is the whole point of showing it rather than translating around it.
+  const total = rows.reduce((n, r) => n + (r.count || 0), 0);
+  return `<div class="err">
+    <b>${total} object${total === 1 ? '' : 's'} hold text this app does not read yet.</b>
+    Everything else is translated normally, but these stay in the original language.
+    <b>Please report this drawing</b> &mdash; it names a kind of object we have not seen before.
+    <ul style="margin:4px 0 0 18px;padding:0">${rows.map(r =>
+      `<li><code>${esc(r.kind)}</code> &times; ${r.count}${
+        r.where && r.where.length ? ' in ' + esc(r.where.slice(0, 3).join(', ')) : ''
+      }${r.sample ? ' &mdash; e.g. ' + esc(r.sample) : ''}</li>`).join('')}</ul>
+  </div>`;
+}
+
 function unreachableNotice(rows) {
   // Text inside an embedded Word/Excel object, or inside an entity from an
   // application we do not have, belongs to that program. Nothing we can do
@@ -604,6 +620,7 @@ function renderHeader() {
       ${st('review','4 Review', rows.length ? `${rows.filter(r=>r.approved).length}/${rows.length} approved` : '')}
       ${st('patch','5 Patch & verify', pa ? `${pa.patched} places${pa.narrowed?', '+pa.narrowed+' narrowed':''}${pa.overflow?', '+pa.overflow+' too long':''} · geometry ${pa.verified?'unchanged':'CHANGED'}` : '')}
     </div>
+    ${inv?.uncollected?.length ? uncollectedNotice(inv.uncollected) : ''}
     ${inv?.unreachable?.length ? unreachableNotice(inv.unreachable) : ''}
     ${inv?.links?.length ? linksNotice(inv.links) : ''}
     <div class="actions">

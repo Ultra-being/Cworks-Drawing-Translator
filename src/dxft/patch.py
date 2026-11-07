@@ -246,8 +246,10 @@ def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved
                 result.skipped.append(handle)
                 continue
             k = e.dxftype()
-            if k in ("TEXT", "ATTRIB", "DIMENSION"):
+            if k in ("TEXT", "ATTRIB", "DIMENSION", "ARC_DIMENSION", "LARGE_RADIAL_DIMENSION"):
                 e.dxf.text = text
+            elif k == "TOLERANCE":
+                e.dxf.content = text
             elif k == "MTEXT":
                 e.text = text
             elif k in ("MULTILEADER", "MLEADER"):
@@ -379,7 +381,7 @@ def _geometry_fingerprint(doc: Drawing) -> tuple[int, str]:
     for space in _all_spaces(doc):
         for e in space:
             t = e.dxftype()
-            if t in ("TEXT", "MTEXT", "ATTRIB", "ATTDEF", "MLEADER", "MULTILEADER"):
+            if t in ("TEXT", "MTEXT", "ATTRIB", "ATTDEF", "MLEADER"):
                 continue
             n += 1
             h.update(t.encode())

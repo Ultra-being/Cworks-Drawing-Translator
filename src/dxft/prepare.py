@@ -19,7 +19,7 @@ from dataclasses import dataclass, asdict, field
 
 import os
 
-from .inventory import TextItem, detect_lang
+from .inventory import TextItem, detect_lang, DIM_PLACEHOLDER
 from . import layout
 from .layout import fits_like_a_line
 
@@ -147,6 +147,24 @@ def mark_codes(raw: str) -> tuple[str, list[str]]:
     return MTEXT_CODE.sub(repl, simplify_mtext(raw)), codes
 
 
+def mark_dim_placeholder(raw: str) -> tuple[str, list[str]]:
+    """Hide "<>" in a dimension override behind a marker.
+
+    AutoCAD puts the measured value wherever "<>" appears, so an override
+    reading "<>мм" draws as "1200мм". Sent to the model as-is, the two angle
+    brackets are just punctuation it is free to move, translate or drop, and a
+    dropped one turns a live measurement into dead text. unmark_codes puts
+    back any marker the model loses, so masking it makes that impossible.
+    """
+    codes: list[str] = []
+
+    def repl(m: re.Match) -> str:
+        codes.append(m.group(0))
+        return MARK.format(len(codes))
+
+    return re.sub(re.escape(DIM_PLACEHOLDER), repl, raw), codes
+
+
 def unmark_codes(marked: str, codes: list[str]) -> str:
     """Put the format codes back. Markers the model dropped are appended at
     the start in order so formatting is never silently lost."""
@@ -217,6 +235,8 @@ def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list
             continue
         if it.kind in ("MTEXT", "MLEADER", "TABLE_CELL"):
             marked, codes = mark_codes(it.raw)
+        elif it.kind == "DIMENSION" and DIM_PLACEHOLDER in (it.raw or ""):
+            marked, codes = mark_dim_placeholder(it.raw)
         else:
             marked, codes = it.raw, []
         units.append(([it], marked, codes))

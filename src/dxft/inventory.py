@@ -518,11 +518,14 @@ def _walk(doc: Drawing, space: Iterable, where: str, out: list[TextItem]) -> Non
                         x=float(a.dxf.insert.x), y=float(a.dxf.insert.y), block_owner=e.dxf.handle, tag=a.dxf.tag,
                         halign=int(a.dxf.halign), ax=_align_x(a),
                     ))
-            elif t == "DIMENSION":
+            elif t in ("DIMENSION", "ARC_DIMENSION", "LARGE_RADIAL_DIMENSION"):
+                # Arc and large-radial dimensions are their own DXF type
+                # names. Matching only "DIMENSION" would skip them the way
+                # "MLEADER" skipped every multileader.
                 txt = e.dxf.text or ""
                 if txt and txt != DIM_PLACEHOLDER:
                     out.append(TextItem(
-                        handle=e.dxf.handle, kind=t, where=where, layer=e.dxf.layer, style=e.dxf.dimstyle,
+                        handle=e.dxf.handle, kind="DIMENSION", where=where, layer=e.dxf.layer, style=e.dxf.dimstyle,
                         raw=txt, plain=txt.replace(DIM_PLACEHOLDER, " "), lang=detect_lang(txt),
                     ))
             elif t == "ACAD_TABLE":
@@ -535,6 +538,13 @@ def _walk(doc: Drawing, space: Iterable, where: str, out: list[TextItem]) -> Non
                     out.append(TextItem(
                         handle=f"{e.dxf.handle}:{idx}", kind="TABLE_CELL", where=where, layer=e.dxf.layer, style="",
                         raw=value, plain=plain, lang=detect_lang(plain), block_owner=e.dxf.get("geometry", ""),
+                    ))
+            elif t == "TOLERANCE":
+                txt = e.dxf.get("content", "") or ""
+                if txt.strip():
+                    out.append(TextItem(
+                        handle=e.dxf.handle, kind="TOLERANCE", where=where, layer=e.dxf.layer, style="",
+                        raw=txt, plain=txt, lang=detect_lang(txt),
                     ))
             elif t in ("MULTILEADER", "MLEADER"):
                 # AutoCAD writes MULTILEADER. MLEADER is the older alias, and

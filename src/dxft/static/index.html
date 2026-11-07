@@ -521,6 +521,23 @@ const elapsedText = (secs) => secs == null ? '' : secs < 60 ? `${secs}s` : `${Ma
 // "C:\Users\someone\Desktop\..." points at a machine that is not theirs and
 // probably has not existed for years -- it is a dead link left in the file,
 // and listing thirty of them as things to ask for is worse than useless.
+function unreachableNotice(rows) {
+  // Text inside an embedded Word/Excel object, or inside an entity from an
+  // application we do not have, belongs to that program. Nothing we can do
+  // reaches it. Saying so beats letting a Russian table come back untouched
+  // and look like the app is broken.
+  const total = rows.reduce((n, r) => n + (r.count || 0), 0);
+  return `<div class="err" style="background:#fef3c7;border:1px solid #f0c674;color:var(--ink)">
+    <b>${total} object${total === 1 ? '' : 's'} in this drawing hold${total === 1 ? 's' : ''} text we cannot reach.</b>
+    Everything else is translated as usual. These stay in the original language:
+    <ul style="margin:4px 0 0 18px;padding:0">${rows.map(r =>
+      `<li>${r.count} &times; ${esc(r.what)} <span style="opacity:.7">(${esc(r.kind)}${
+        r.where && r.where.length ? ' in ' + esc(r.where.slice(0, 3).join(', ')) : ''})</span></li>`).join('')}</ul>
+    <div style="margin-top:6px;opacity:.8">To translate one, open the drawing in AutoCAD, double-click the
+    object, and translate it in the program that owns it.</div>
+  </div>`;
+}
+
 function linksNotice(links) {
   const far = links.filter(f => /^([A-Za-z]:|\\\\)/.test(f));
   const near = links.filter(f => !/^([A-Za-z]:|\\\\)/.test(f));
@@ -587,6 +604,7 @@ function renderHeader() {
       ${st('review','4 Review', rows.length ? `${rows.filter(r=>r.approved).length}/${rows.length} approved` : '')}
       ${st('patch','5 Patch & verify', pa ? `${pa.patched} places${pa.narrowed?', '+pa.narrowed+' narrowed':''}${pa.overflow?', '+pa.overflow+' too long':''} · geometry ${pa.verified?'unchanged':'CHANGED'}` : '')}
     </div>
+    ${inv?.unreachable?.length ? unreachableNotice(inv.unreachable) : ''}
     ${inv?.links?.length ? linksNotice(inv.links) : ''}
     <div class="actions">
       <button class="primary${!tr && pr && !busy ? ' go' : ''}" ${busy||!pr?'disabled':''} onclick="act('translate')">${tr?'Re-translate':'Translate'}</button>

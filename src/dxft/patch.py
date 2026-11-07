@@ -73,6 +73,7 @@ class PatchResult:
     added_lines: int = 0      # lines written under a cell that could not hold its text on one
     widened_forms: int = 0    # full-width characters put into ASCII so the Latin font can draw them
     boxed: int = 0            # MTEXT boxes pulled in to the cell they sit in
+    proxies_cleared: int = 0  # cached pictures of pre-translation multileader text, removed
 
 
 def _font_can_display_ja(doc: Drawing, style_name: str) -> bool:
@@ -249,12 +250,21 @@ def apply(doc: Drawing, items: list[TextItem], segments: list[Segment], approved
                 e.dxf.text = text
             elif k == "MTEXT":
                 e.text = text
-            elif k == "MLEADER":
+            elif k in ("MULTILEADER", "MLEADER"):
                 try:
                     e.set_mtext_content(text)
                 except Exception:
                     result.skipped.append(handle)
                     continue
+                # A multileader carries a proxy graphic: a picture of itself
+                # that AutoCAD caches for software that cannot draw the entity.
+                # It still shows the old text. AutoCAD ignores it and redraws
+                # from the entity, but every other viewer -- our own preview
+                # included -- draws the picture, so the callout would read
+                # untranslated forever. A stale picture is worse than none.
+                if getattr(e, "proxy_graphic", None):
+                    e.proxy_graphic = None
+                    result.proxies_cleared += 1
             else:
                 result.skipped.append(handle)
                 continue
@@ -369,7 +379,7 @@ def _geometry_fingerprint(doc: Drawing) -> tuple[int, str]:
     for space in _all_spaces(doc):
         for e in space:
             t = e.dxftype()
-            if t in ("TEXT", "MTEXT", "ATTRIB", "ATTDEF", "MLEADER"):
+            if t in ("TEXT", "MTEXT", "ATTRIB", "ATTDEF", "MLEADER", "MULTILEADER"):
                 continue
             n += 1
             h.update(t.encode())

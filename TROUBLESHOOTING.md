@@ -133,6 +133,42 @@ Three different causes, and they look identical on screen.
   links were that kind.
 - **The job predates a fix.** Use **Re-read drawing**, then re-translate. Nothing is lost.
 
+### Callouts on leader lines are still in the original language
+
+The arrow-and-text notes pointing at equipment — a line from a duct to a label like
+"Вытяжка CleanUp, 60см" — are **multileaders**, which AutoCAD stores as one object
+rather than as loose text.
+
+**Jobs run before 7 November 2026 skipped every one of them.** The app looked for the
+name `MLEADER`; AutoCAD writes `MULTILEADER`. Nothing matched, so the callouts were
+never read, never translated, and written back untouched. On one Honmachi sheet that
+was 589 callouts and 17,768 characters, about one Russian string in seven. Three of the
+19 drawings in that delivery were affected: 770 callouts in all.
+
+**Fix an old job with Re-read drawing, then re-translate and re-patch.** Nothing is
+lost and nothing is charged twice for text already in memory.
+
+A detail worth knowing if a callout still looks wrong: a multileader carries a cached
+picture of itself that AutoCAD keeps for software that cannot draw the object. The app
+now throws that picture away on any callout it edits, because the picture shows the old
+words and the preview draws it in preference to the real text. The number dropped is in
+the report as "Callouts whose cached picture was dropped".
+
+### A table or title block is still in the original language, and it is Word or Excel
+
+Open the drawing in AutoCAD and double-click the block. If Word or Excel opens, the text
+belongs to that program: the drawing holds the file whole, as a sealed object plus a
+picture of it. No drawing tool can rewrite that text, and this app does not pretend to.
+
+The job page says so up front, naming how many there are and which sheets they sit on.
+Everything else on the sheet is translated as usual.
+
+To translate one: double-click it in AutoCAD, translate inside the program that opens,
+close it. The drawing keeps the result.
+
+The same applies to an object from a vertical application — a plumbing or electrical
+add-on nobody here has installed. It is listed the same way.
+
 ### A small box of text sits in the bottom right of every page
 
 That is a stamp block placed outside the sheet frame. It is in the original too. Check the

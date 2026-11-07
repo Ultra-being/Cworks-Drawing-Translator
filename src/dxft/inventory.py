@@ -73,6 +73,16 @@ def _is_vertical(doc: Drawing, style_name: str) -> bool:
     return big.startswith("@") or font.startswith("@") or bool(getattr(st.dxf, "flags", 0) & 4)
 
 
+def _style_name(doc: Drawing, handle: str) -> str:
+    """Text style name behind a handle, or "" if it cannot be resolved."""
+    if not handle:
+        return ""
+    try:
+        return doc.entitydb[handle].dxf.name or ""
+    except Exception:
+        return ""
+
+
 def _align_x(e) -> float:
     """X of the alignment point for centred/right text, else the insert x."""
     try:
@@ -526,16 +536,37 @@ def _walk(doc: Drawing, space: Iterable, where: str, out: list[TextItem]) -> Non
                         handle=f"{e.dxf.handle}:{idx}", kind="TABLE_CELL", where=where, layer=e.dxf.layer, style="",
                         raw=value, plain=plain, lang=detect_lang(plain), block_owner=e.dxf.get("geometry", ""),
                     ))
-            elif t == "MLEADER":
+            elif t in ("MULTILEADER", "MLEADER"):
+                # AutoCAD writes MULTILEADER. MLEADER is the older alias, and
+                # for a long time this branch matched only that, so every
+                # callout in every real AutoCAD drawing was skipped: 589 of
+                # them, 17,768 characters, on the first file we checked. Both
+                # names are stored as kind "MLEADER" so the rest of the
+                # pipeline keeps seeing one name.
                 try:
                     content = e.get_mtext_content()
                 except Exception:
                     content = ""
                 if content:
+                    # The text lives in the entity's context, not in its DXF
+                    # attributes: height on the context, position and wrap
+                    # width on the MTextData inside it. Without these the
+                    # layout engine budgets the string at zero width.
+                    ctx = getattr(e, "context", None)
+                    mt = getattr(ctx, "mtext", None) if ctx else None
+                    ins = getattr(mt, "insert", None) if mt else None
+                    style = _style_name(doc, getattr(mt, "style_handle", "") if mt else "")
+                    plain = _plain_mtext(content)
                     out.append(TextItem(
-                        handle=e.dxf.handle, kind=t, where=where, layer=e.dxf.layer, style="",
-                        raw=content, plain=ezdxf.tools.text.plain_mtext(content) if hasattr(ezdxf.tools, "text") else content,
-                        lang=detect_lang(content),
+                        handle=e.dxf.handle, kind="MLEADER", where=where, layer=e.dxf.layer, style=style,
+                        raw=content, plain=plain, lang=detect_lang(plain),
+                        height=float(getattr(ctx, "char_height", 0.0) or 0.0) if ctx else 0.0,
+                        width_factor=mtext_width_factor(content),
+                        rotation=float(getattr(mt, "rotation", 0.0) or 0.0) if mt else 0.0,
+                        x=float(ins[0]) if ins is not None else 0.0,
+                        y=float(ins[1]) if ins is not None else 0.0,
+                        box_width=float(getattr(mt, "width", 0.0) or 0.0) if mt else 0.0,
+                        vertical=_is_vertical(doc, style),
                     ))
         except Exception as ex:  # never let one odd entity stop the inventory
             out.append(TextItem(handle=getattr(e.dxf, "handle", "?"), kind=t, where=where, layer="", style="",
@@ -564,6 +595,37 @@ def inventory(doc: Drawing) -> list[TextItem]:
             continue
         _walk(doc, block, f"block:{block.name}", out)
     return out
+
+
+# Entities that can hold words we cannot reach. An OLE2FRAME is a Word or
+# Excel object embedded whole, kept as a binary blob plus a picture of itself;
+# an ACAD_PROXY_ENTITY is an object from a vertical application nobody here
+# has. In both cases the text belongs to another program and no DXF library
+# can rewrite it. Naming them is the point: a drawing that comes back with a
+# Russian table still in it should say why, not look like a bug.
+UNREACHABLE = {
+    "OLE2FRAME": "embedded Word/Excel object",
+    "ACAD_PROXY_ENTITY": "object from an application we do not have",
+}
+
+
+def unreachable_text(doc: Drawing) -> list[dict]:
+    """Entities holding text no DXF library can rewrite, with where they are."""
+    found: dict[str, dict] = {}
+    spaces = [("model", doc.modelspace())]
+    spaces += [(f"paper:{lo.name}", lo) for lo in doc.layouts if lo.name != "Model"]
+    spaces += [(f"block:{b.name}", b) for b in doc.blocks
+               if b.name not in ("*Model_Space", "*Paper_Space")]
+    for where, space in spaces:
+        for e in space:
+            t = e.dxftype()
+            if t not in UNREACHABLE:
+                continue
+            row = found.setdefault(t, {"kind": t, "what": UNREACHABLE[t], "count": 0, "where": []})
+            row["count"] += 1
+            if where not in row["where"]:
+                row["where"].append(where)
+    return sorted(found.values(), key=lambda r: -r["count"])
 
 
 def summary(items: list[TextItem]) -> dict:

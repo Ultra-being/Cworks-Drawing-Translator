@@ -142,8 +142,16 @@ rather than as loose text.
 **Jobs run before 7 November 2026 skipped every one of them.** The app looked for the
 name `MLEADER`; AutoCAD writes `MULTILEADER`. Nothing matched, so the callouts were
 never read, never translated, and written back untouched. On one Honmachi sheet that
-was 589 callouts and 17,768 characters, about one Russian string in seven. Three of the
-19 drawings in that delivery were affected: 770 callouts in all.
+was 589 callouts and 17,768 characters, about one Russian string in seven.
+
+Four of the 19 drawings in the Honmachi delivery are affected, 770 callouts in all:
+
+| Drawing | Callouts |
+|---|---|
+| `HAVC/20_ДУ2020-ИОС5.4.1.dxf` | 589 |
+| `Electrical/03 Планы.dxf` | 149 |
+| `Electrical/00 - Обложка и титул.dxf` | 16 |
+| `Telephone/00 - Обложка и титул.dxf` | 16 |
 
 **Fix an old job with Re-read drawing, then re-translate and re-patch.** Nothing is
 lost and nothing is charged twice for text already in memory.

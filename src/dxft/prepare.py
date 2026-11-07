@@ -38,6 +38,7 @@ MTEXT_CODE = re.compile(
     r"|\\[LlOoKk]"             # underline / overline / strike toggles: exactly two characters
     r"|\\P|\\~|\\\\|\\\{|\\\}"  # newline, nbsp, escaped backslash and braces
     r"|\{|\}"                  # group braces
+    r"|%%[cCdDpPuUoO]|%%\d{3}"  # Ø ° ± underline overline, and %%nnn by code
     r")"
 )
 MARK = "⟦{}⟧"  # ⟦n⟧
@@ -147,22 +148,31 @@ def mark_codes(raw: str) -> tuple[str, list[str]]:
     return MTEXT_CODE.sub(repl, simplify_mtext(raw)), codes
 
 
-def mark_dim_placeholder(raw: str) -> tuple[str, list[str]]:
-    """Hide "<>" in a dimension override behind a marker.
+# AutoCAD's older control codes, which appear in plain TEXT as well as in
+# MTEXT: %%c draws Ø, %%d draws °, %%p draws ±, %%u and %%o toggle under- and
+# overline, %%nnn is a character by code. "%%C160" draws as "Ø160".
+PLAIN_CODE = re.compile(r"%%[cCdDpPuUoO]|%%\d{3}")
 
-    AutoCAD puts the measured value wherever "<>" appears, so an override
-    reading "<>мм" draws as "1200мм". Sent to the model as-is, the two angle
-    brackets are just punctuation it is free to move, translate or drop, and a
-    dropped one turns a live measurement into dead text. unmark_codes puts
-    back any marker the model loses, so masking it makes that impossible.
+
+def mark_plain_codes(raw: str, extra: str = "") -> tuple[str, list[str]]:
+    """Hide control codes in text that carries no MTEXT formatting.
+
+    These reached the model as bare punctuation it was free to move,
+    translate or drop: 262 strings in one delivery, mostly duct labels like
+    "%%C160\\PВ20". A dropped %%c turns a diameter into the literal letters.
+    `extra` adds one more pattern, used for a dimension's "<>", which is where
+    AutoCAD puts the measured value -- losing it turns a live measurement into
+    dead text. unmark_codes restores any marker the model drops, so once
+    masked neither can go missing.
     """
+    pattern = PLAIN_CODE if not extra else re.compile(PLAIN_CODE.pattern + "|" + extra)
     codes: list[str] = []
 
     def repl(m: re.Match) -> str:
         codes.append(m.group(0))
         return MARK.format(len(codes))
 
-    return re.sub(re.escape(DIM_PLACEHOLDER), repl, raw), codes
+    return pattern.sub(repl, raw), codes
 
 
 def unmark_codes(marked: str, codes: list[str]) -> str:
@@ -235,10 +245,10 @@ def prepare(items: list[TextItem], source_langs: set[str], walls: dict[str, list
             continue
         if it.kind in ("MTEXT", "MLEADER", "TABLE_CELL"):
             marked, codes = mark_codes(it.raw)
-        elif it.kind == "DIMENSION" and DIM_PLACEHOLDER in (it.raw or ""):
-            marked, codes = mark_dim_placeholder(it.raw)
+        elif it.kind == "DIMENSION":
+            marked, codes = mark_plain_codes(it.raw, extra=re.escape(DIM_PLACEHOLDER))
         else:
-            marked, codes = it.raw, []
+            marked, codes = mark_plain_codes(it.raw)
         units.append(([it], marked, codes))
     for p in paras:
         units.append((p.items, layout.join_lines([t.plain for t in p.items], p.items[0].lang), []))

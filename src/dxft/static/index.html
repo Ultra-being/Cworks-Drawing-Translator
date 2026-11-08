@@ -164,11 +164,11 @@
 <dialog id="newDlg">
   <form method="dialog" onsubmit="return submitNew(event)">
     <strong>New drawing</strong>
-    <label>Drawing file: .dxf (export DWG as DXF, R2007 or later) or a vector .pdf plotted from CAD</label>
+    <label>Drawing file: .dwg, .dxf (R2007 or later) or a vector .pdf plotted from CAD</label>
     <!-- The native file control carries its own tooltip ("No file chosen"),
          which the browser leaves floating on the page when the dialog closes
          under the cursor. A button of our own has no such thing. -->
-    <input type="file" name="file" accept=".dxf,.pdf" id="upFile" multiple style="display:none"
+    <input type="file" name="file" accept=".dwg,.dxf,.pdf" id="upFile" multiple style="display:none"
            onchange="$('#upFileName').textContent = this.files.length > 1 ? `${this.files.length} drawings chosen` : this.files[0] ? this.files[0].name : 'No drawing chosen yet'">
     <div style="display:flex;align-items:center;gap:10px">
       <button type="button" onclick="$('#upFile').click()">Choose drawings…</button>
@@ -477,6 +477,13 @@ function busyHtml() {
   // Counting out the strings is only the first half of translating: whatever
   // does not fit goes back for tighter wording. Show that as its own phase,
   // or the bar sits at 100% while a model call is still running.
+  // Converting a DWG is the first half of reading it and takes about as long,
+  // with nothing to count. Without this the page says "Reading the drawing"
+  // for twice as long as anyone expects and looks stuck.
+  if (current.phase === 'converting') {
+    return `<div class="empty" style="margin:60px auto">Converting the DWG to DXF…${el ? ' · ' + el : ''}
+      <div class="sub" style="color:var(--mute);margin-top:6px">${howLong()} — reading it starts straight after</div></div>`;
+  }
   if (current.phase === 'shortening') {
     return `<div class="empty" style="max-width:460px;margin:60px auto">
       <div style="margin-bottom:10px">Shortening ${current.total} string${current.total===1?'':'s'} that did not fit${el ? ' · ' + el : ''}</div>
@@ -601,7 +608,7 @@ function renderHeader() {
   const busy = !!run;
   $('#head').innerHTML = `
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h2 style="margin:0;font-size:17px">${esc(current.name)}</h2>
-      <span class="sub" style="color:var(--mute)">${esc(current.client||'Unfiled')} / ${esc(current.project||'General')} · ${current.source} → ${current.target} · ${(current.fmt||'dxf').toUpperCase()} · job ${current.id}
+      <span class="sub" style="color:var(--mute)">${esc(current.client||'Unfiled')} / ${esc(current.project||'General')} · ${current.source} → ${current.target} · ${(current.src_fmt||current.fmt||'dxf').toUpperCase()} · job ${current.id}
       <a href="#" onclick="moveJob();return false" style="color:var(--accent)">move</a></span>
       <span class="sub" style="color:var(--mute);margin-left:auto">${spendData && spendData.per_job_jpy[current.id] != null ? 'Spent on this job ≈ <b>¥' + spendData.per_job_jpy[current.id].toLocaleString() + '</b>' : ''}</span></div>
     ${current.error ? `<div class="err">${esc(current.error)}</div>` : ''}
@@ -620,6 +627,11 @@ function renderHeader() {
       ${st('review','4 Review', rows.length ? `${rows.filter(r=>r.approved).length}/${rows.length} approved` : '')}
       ${st('patch','5 Patch & verify', pa ? `${pa.patched} places${pa.narrowed?', '+pa.narrowed+' narrowed':''}${pa.overflow?', '+pa.overflow+' too long':''} · geometry ${pa.verified?'unchanged':'CHANGED'}` : '')}
     </div>
+    ${pa && current.src_fmt==='dwg' && pa.dwg_written === false ? `<div class="err">
+      <b>The translation is finished, but it could not be converted back to DWG.</b>
+      Download the DXF and save it as DWG from AutoCAD — the drawing itself is correct and
+      verified. Use <b>Help → Report a problem</b> so the converter gets looked at.
+      <div class="sub" style="margin-top:6px">${esc(pa.dwg_error||'')}</div></div>` : ''}
     ${inv?.uncollected?.length ? uncollectedNotice(inv.uncollected) : ''}
     ${inv?.unreachable?.length ? unreachableNotice(inv.unreachable) : ''}
     ${inv?.links?.length ? linksNotice(inv.links) : ''}
@@ -627,7 +639,11 @@ function renderHeader() {
       <button class="primary${!tr && pr && !busy ? ' go' : ''}" ${busy||!pr?'disabled':''} onclick="act('translate')">${tr?'Re-translate':'Translate'}</button>
       <button ${busy||!tr?'disabled':''} onclick="act('approve-all')">Approve all clean</button>
       <button class="primary" ${busy||!tr?'disabled':''} onclick="act('patch')">${pa?'Re-patch':'Patch & verify'}</button>
-      <button ${pa?'':'disabled'} onclick="saveAs('output')">Download ${(current.fmt||'dxf').toUpperCase()}</button>
+      <button ${pa?'':'disabled'} onclick="saveAs('output')">Download ${(current.dl_ext||current.fmt||'dxf').toUpperCase()}</button>
+      ${current.src_fmt==='dwg' && pa?.dwg_written ? `<button onclick="saveAs('output-dxf')"
+        title="The DXF the app wrote and verified, before it was converted back to DWG. Worth having if the DWG looks wrong.">Download DXF</button>` : ''}
+      ${current.src_fmt==='dwg' ? `<button onclick="saveAs('input')"
+        title="The client's DWG exactly as it was uploaded. This is what to compare against if the conversion is ever blamed for something.">Download original</button>` : ''}
       ${current.fmt==='pdf' ? `<button ${pa && Object.keys(pageFlags()).length ? '' : 'disabled'}
         onclick="saveAs('output-notes')"
         title="The same PDF with a sticky note on every page worth a look, a bookmark for each, and a summary sheet at the end">Download PDF with notes</button>` : ''}
@@ -687,7 +703,9 @@ async function saveAs(name) {
   // Chrome/Edge: a proper "Save as" dialog so the user chooses the folder. Others: normal download.
   const url = `/api/jobs/${current.id}/download/${name}`;
   const stem = current.name.replace(/\.[^.]+$/, '');
-  const filename = name === 'output' ? `${stem}_${current.target.toUpperCase()}.${current.fmt||'dxf'}`
+  const filename = name === 'output' ? `${stem}_${current.target.toUpperCase()}.${current.dl_ext||current.fmt||'dxf'}`
+                 : name === 'output-dxf' ? `${stem}_${current.target.toUpperCase()}.dxf`
+                 : name === 'input' ? current.name
                  : name === 'output-notes' ? `${stem}_${current.target.toUpperCase()}_notes.pdf`
                  : `${stem}_report.md`;
   if (!window.showSaveFilePicker) { const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); return; }

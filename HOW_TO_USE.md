@@ -10,9 +10,16 @@ Open the app: **http://127.0.0.1:8765** (on the machine where it runs).
 
 | You have | Do this | Result |
 |---|---|---|
-| **DWG** | Open in AutoCAD → `SAVEAS` → file type **AutoCAD 2018 DXF** (any R2007 or later is fine). One DXF per sheet or one for the whole set, both work. | Translated **DXF** you can open or save back as DWG. |
+| **DWG** | Upload it as it is. | Translated **DWG**, at the same AutoCAD release it came in as. |
+| **DXF** | Upload it as it is (R2007 or later). One per sheet or one for the whole set, both work. | Translated **DXF**. |
 | **PDF plotted from CAD** (the text is selectable in a PDF reader) | Upload the PDF as it is. | Translated **PDF**. It cannot be turned back into CAD. |
 | **Scanned PDF / image** (text not selectable) | Not supported yet. | — |
+
+A DWG is converted to DXF before it is read, and converted back after it is translated, so
+a DWG job shows **1 Read** for roughly twice as long as a DXF job of the same drawing. The
+page says "Converting the DWG to DXF" while that half is running. You get both files on the
+way out: **Download DWG** is the one to send on, **Download DXF** is the file the app wrote
+and checked, worth having if the DWG ever looks wrong.
 
 Sizes up to ~50 MB are fine. A 60-page PDF or a full architecture set takes 10–30 minutes to translate.
 
@@ -88,7 +95,12 @@ Edit, save, run the next job — no restart needed.
 
 ## 9. If something goes wrong
 
-- **Upload refused**: it must be `.dxf` or a vector `.pdf`. DWG must be exported first.
+- **Upload refused**: it must be `.dwg`, `.dxf` or a vector `.pdf`.
+- **A DWG is refused with "the ODA File Converter is not installed"**: the converter the
+  server uses for DWG is missing — open
+  [/healthz](https://cworks-drawing-translator.onrender.com/healthz) and it will say
+  `"dwg": false`. Save the drawing as DXF from AutoCAD and upload that; tell Allan so the
+  server gets fixed.
 - **A stage shows an error in red**: read it; most often it's a network/API hiccup — press Translate again. Nothing is lost; every stage is a file in the job folder.
 - **Job is "busy"**: another step is still running on it. Wait for the strip to stop pulsing.
 - **Text looks wrong in the After preview but right in the review table**: the preview uses a substitute font; check in AutoCAD before judging.

@@ -162,6 +162,50 @@ now throws that picture away on any callout it edits, because the picture shows 
 words and the preview draws it in preference to the real text. The number dropped is in
 the report as "Callouts whose cached picture was dropped".
 
+### A DWG was refused on upload
+
+The message says the ODA File Converter is not installed on this server. DWG is not a
+format any Python library reads, so the app converts it with a separate program from the
+Open Design Alliance, installed on the server alongside the app. If that program is
+missing, DWG cannot be taken at all.
+
+Open https://cworks-drawing-translator.onrender.com/healthz. If it says `"dwg": false`,
+that is the cause and it is confirmed.
+
+**What to do now:** open the drawing in AutoCAD, `SAVEAS` → **AutoCAD 2018 DXF**, and
+upload that. You get a translated DXF, which saves back to DWG from AutoCAD in a few
+seconds. Tell Allan either way, because every later DWG will be refused too until the
+server is fixed.
+
+### The translation finished but the DWG could not be written
+
+The job page says so in red and the report says it at the top. The drawing itself is
+**finished and verified** — only the last step, converting it back from DXF to DWG, failed.
+
+**Press Download DXF.** That is the file the app wrote and checked. Open it in AutoCAD and
+`SAVEAS` → DWG. The result is the same drawing; nothing was lost and nothing needs
+translating again.
+
+Then use **Help → Report a problem**, because this should not happen and the message in red
+says which part gave way.
+
+### The DWG we sent back does not look like the DWG the client sent
+
+Compare against **Download DXF**, not against the original. The app reads, translates and
+verifies a DXF; the DWG is made from that DXF at the very end. So there are two different
+questions, and the DXF tells you which one you have:
+
+- **The DXF is right and the DWG is wrong** — the converter did it, on the way out. Report
+  it; the DXF is correct and can be saved as DWG by hand in the meantime.
+- **The DXF is wrong in the same way** — then it was already wrong before the translation
+  started, on the way in. **Download the original** gives the client's DWG back
+  byte-for-byte; open that in AutoCAD and compare. A drawing holding objects from a
+  vertical application (a Tekla or Revit export, say) can lose them in conversion, and the
+  job page says so under "we could not reach these" when it does.
+
+The drawing goes back out at the same AutoCAD release it arrived as — a 2010 DWG comes back
+as a 2010 DWG — so it should open wherever the original did.
+
 ### A table or title block is still in the original language, and it is Word or Excel
 
 Open the drawing in AutoCAD and double-click the block. If Word or Excel opens, the text

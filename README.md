@@ -37,7 +37,16 @@ Needs `ANTHROPIC_API_KEY` in the environment or in `~/.config/dxft/env`. Default
 
 ## Input
 
-AutoCAD 2018 DXF (`AC1032`, UTF-8) is the tested format. Export from DWG with `SAVEAS` → DXF 2018. Older DXF versions with code pages are opened tolerantly but untested.
+DWG and DXF, plus vector PDF.
+
+A DWG is converted to DXF by the ODA File Converter before it is read, and converted back
+afterwards at the release it arrived as. The converter is installed in the Docker image; on
+a machine without it, DWG uploads are refused with a message asking for a DXF and
+`/healthz` reports `"dwg": false`. `DXFT_ODAFC` points at the executable if it is not on
+the PATH.
+
+AutoCAD 2018 DXF (`AC1032`, UTF-8) is the tested format. Older DXF versions with code pages
+are opened tolerantly but untested.
 
 ## Verified on
 

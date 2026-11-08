@@ -2,7 +2,9 @@
 step is inspectable and any step can be re-run or hand-edited.
 
 jobs/<id>/
-  input.dxf|pdf      the file as uploaded
+  input.dxf|pdf      the drawing we work on
+  input.dwg          the file as uploaded, when it came in as a DWG
+  output.dwg         stage 6 again, converted back for the client
   job.json           settings + status
   inventory.json     stage 1
   segments.json      stage 2 (unique strings with markers)
@@ -31,6 +33,7 @@ from . import translate as tr
 from . import fit as fitmod
 from . import patch as pt
 from . import pdfdoc
+from . import dwg as dwgfmt
 
 JOBS = Path("jobs")
 
@@ -252,15 +255,38 @@ class Job:
     def create(cls, dxf_path: str, source: str, target: str, name: str = "", root: Path = JOBS,
                client: str = "", project: str = "") -> "Job":
         job = cls(time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6], root)
-        fmt = "pdf" if (name or dxf_path).lower().endswith(".pdf") else "dxf"
-        shutil.copy(dxf_path, job.dir / f"input.{fmt}")
+        low = (name or dxf_path).lower()
+        src_fmt = "pdf" if low.endswith(".pdf") else "dwg" if low.endswith(".dwg") else "dxf"
+        extra: dict = {}
+        if src_fmt == "dwg":
+            # A DWG is kept exactly as it arrived and converted later, when
+            # the drawing is read. Converting here would do it inside the
+            # upload request, and it costs as much time and as much memory as
+            # reading the drawing does -- on a large set, minutes and a
+            # gigabyte, with the browser waiting and nothing serialising it.
+            # Refuse now, though, while there is still somebody to tell.
+            if not dwgfmt.available():
+                raise RuntimeError(dwgfmt.NO_CONVERTER)
+            release = dwgfmt.release(dxf_path)
+            if release is None:
+                # Named .dwg but does not say which release wrote it. A real
+                # DWG always does, in its first six bytes.
+                raise RuntimeError(f"{name or Path(dxf_path).name} is not a DWG file")
+            extra = {"src_fmt": "dwg", "dwg_release": release}
+        uploaded = job.dir / f"input.{src_fmt}"
+        shutil.copy(dxf_path, uploaded)
+        fmt = "dxf" if src_fmt == "dwg" else src_fmt
         # How big it is, so the app can say how long this will take instead of
         # telling everyone "a few minutes". On a 179 MB drawing that was wrong
         # by a factor of ten and made a perfectly normal run look broken.
-        size_mb = round((job.dir / f"input.{fmt}").stat().st_size / 1e6, 1)
+        # For a DWG this is the uploaded size for now, and is replaced with
+        # the converted DXF's size once there is one: the DXF is several times
+        # larger and it is the file every stage after this actually works on,
+        # so estimating from the DWG would make the same mistake again.
+        size_mb = round(uploaded.stat().st_size / 1e6, 1)
         job.meta = {"id": job.id, "name": name or Path(dxf_path).name, "source": source, "target": target, "fmt": fmt,
                     "client": client.strip() or "Unfiled", "project": project.strip() or "General",
-                    "size_mb": size_mb,
+                    "size_mb": size_mb, **extra,
                     "status": "created", "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "stages": {}}
         job.save_meta()
         return job
@@ -288,6 +314,22 @@ class Job:
     def output_path(self) -> Path:
         return self.dir / f"output.{self.fmt}"
 
+    @property
+    def src_fmt(self) -> str:
+        """The format as uploaded. "dwg" when we converted it to get a DXF."""
+        m = self._meta if hasattr(self, "_meta") else self.meta
+        return m.get("src_fmt") or m.get("fmt", "dxf")
+
+    @property
+    def source_path(self) -> Path:
+        """The file as it was uploaded, which for a DWG is not what we read."""
+        return self.dir / f"input.{self.src_fmt}"
+
+    @property
+    def dwg_path(self) -> Path:
+        """The translated drawing converted back to DWG."""
+        return self.dir / "output.dwg"
+
     def _stage_start(self) -> None:
         self._t0 = time.monotonic()
 
@@ -308,8 +350,32 @@ class Job:
         self.save_meta()
 
     # ── stages ──
-    def inventory(self) -> dict:
+    def _read_dwg(self, on_progress=None) -> dict:
+        """Turn an uploaded DWG into the DXF everything else works on.
+
+        Done here, as the first half of reading the drawing, because this is
+        the stage that is already queued one at a time: converting and reading
+        a large set each cost about a gigabyte, and two at once is more than
+        the server has. Skipped when the DXF is already there, so re-reading a
+        drawing after an update does not convert it again.
+        """
+        if self.src_fmt != "dwg" or self.input_path.exists():
+            return {}
+        if on_progress:
+            on_progress(0, 0, "converting")
+        t0 = time.monotonic()
+        dwgfmt.to_dxf(self.source_path, self.input_path)
+        dxf_mb = round(self.input_path.stat().st_size / 1e6, 1)
+        m = self.meta
+        m["upload_mb"], m["size_mb"] = m.get("size_mb"), dxf_mb
+        self._meta = m
+        self.save_meta()
+        return {"converted_from": f"DWG ({self.meta.get('dwg_release')})",
+                "convert_seconds": round(time.monotonic() - t0, 1), "dxf_mb": dxf_mb}
+
+    def inventory(self, on_progress=None) -> dict:
         self._stage_start()
+        converted = self._read_dwg(on_progress)
         if self.fmt == "pdf":
             doc = pdfdoc.open_pdf(str(self.input_path))
             items, walls, geo = pdfdoc.inventory(doc)
@@ -335,7 +401,7 @@ class Job:
                                           "items": [it.to_dict() for it in items], "walls": walls,
                                           "floors": floors, "frames": frames, "links": links,
                                           "layouts": layouts, "measure": pt.measure_doc(doc)})
-        self._stage_done("inventory", **summ)
+        self._stage_done("inventory", **summ, **converted)
         return summ
 
     def _measure_font(self) -> None:
@@ -570,14 +636,18 @@ class Job:
             # to work out something already written down.
             ver = pt.verify(str(self.input_path), str(out), added_text=res.added_lines,
                             before=inv_data.get("measure"))
-        report = self._report(res, ver, rows)
+        # Back to DWG before the report is written, so the report can say
+        # whether it worked. Done here rather than on download: the file can
+        # take minutes, and a download request is the wrong place to wait.
+        out_dwg = self._write_dwg() if self.src_fmt == "dwg" else {}
+        report = self._report(res, ver, rows, out_dwg)
         (self.dir / "report.md").write_text(report, encoding="utf-8")
         info = {"patched": res.patched, "skipped": len(res.skipped), "narrowed": res.width_factors, "overflow": len(res.overflow),
                 "added_lines": res.added_lines, "ascii_forms": res.widened_forms,
                 "boxes_pulled_in": res.boxed,
                 "style_changes": res.style_changes, "inline_fonts": res.inline_fonts,
                 "proxies_cleared": res.proxies_cleared,
-                "verified": ver.ok, "problems": ver.problems}
+                "verified": ver.ok, "problems": ver.problems, **out_dwg}
         # A fresh output makes any copy somebody already took out of date, so
         # the job stops counting as collected and shows as live again.
         m = self.meta
@@ -585,6 +655,23 @@ class Job:
         self._meta = m
         self._stage_done("patch", **info)
         return info
+
+    def _write_dwg(self) -> dict:
+        """Convert the finished DXF back to DWG, at the release it arrived as.
+
+        A failure here must not lose the translation. The DXF is written and
+        verified by the time this runs, so the error is recorded and staff can
+        take the DXF: a drawing in the right language that needs converting by
+        hand beats a stage that threw everything away at the last step.
+        """
+        t0 = time.monotonic()
+        try:
+            dwgfmt.to_dwg(self.output_path, self.dwg_path, self.meta.get("dwg_release"))
+        except Exception as ex:
+            self.dwg_path.unlink(missing_ok=True)
+            return {"dwg_written": False, "dwg_error": str(ex)[:300]}
+        return {"dwg_written": True, "dwg_seconds": round(time.monotonic() - t0, 1),
+                "dwg_mb": round(self.dwg_path.stat().st_size / 1e6, 1)}
 
     def notes_by_page(self) -> tuple[dict[int, list[str]], list[str]]:
         """What to put in the handed-over PDF: notes per page, and the summary
@@ -612,7 +699,8 @@ class Job:
             summary = []
         return notes, summary
 
-    def _report(self, res: pt.PatchResult, ver: pt.Verification, rows: list[dict]) -> str:
+    def _report(self, res: pt.PatchResult, ver: pt.Verification, rows: list[dict],
+                out_dwg: dict | None = None) -> str:
         """The report someone reads before sending the drawing on.
 
         It used to open with a column of counters -- entities patched, ASCII
@@ -644,6 +732,15 @@ class Job:
                        "Nothing is missing: all the text is in the drawing. What is listed below either",
                        f"runs wider than the space it was given, or nobody approved it. Whoever takes this",
                        "on can fix any of it in DWG in a few seconds, once they know where to look."]
+
+        out_dwg = out_dwg or {}
+        if out_dwg.get("dwg_written") is False:
+            verdict = verdict + [
+                "",
+                "**The DWG could not be written.** The translation itself is finished and the",
+                "drawing is correct -- download the DXF and save it as DWG from AutoCAD. Send",
+                "this report to Allan so the converter gets looked at.",
+                f"- {out_dwg.get('dwg_error', 'no reason given')}"]
 
         lines = [
             f"# {m['name']}",
@@ -686,6 +783,8 @@ class Job:
             *([f"- {res.boxed} text boxes pulled in to the cell they sit in"] if res.boxed else []),
             *([f"- {res.widened_forms} full-width characters changed to ASCII so the Latin font could draw them"]
               if res.widened_forms else []),
+            *([f"- Written back out as a DWG, at the {m.get('dwg_release', '')} release it arrived as"]
+              if out_dwg.get("dwg_written") else []),
             f"- Geometry {'unchanged' if ver.ok else 'CHANGED -- see above'}: nothing was moved, resized or deleted",
             "",
             "## If something looks wrong", "",

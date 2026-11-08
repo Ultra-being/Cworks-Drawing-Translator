@@ -25,6 +25,7 @@ from . import pipeline as pipe
 from .pipeline import Job, JOBS, Memory, pricing, cost_usd
 from . import pdfdoc
 from . import preview
+from . import dwg as dwgfmt
 
 STATIC = Path(__file__).resolve().parent / "static"
 app = FastAPI(title="Cworks Drawing Translator")
@@ -106,8 +107,12 @@ def healthz():
     # peak need of 1.1 GB. It is on the open endpoint on purpose: it names no
     # drawing, no customer and no login, and being able to read it without
     # signing in is what makes it useful when something is wrong.
+    # "dwg" says whether this server can take a DWG. The converter is a
+    # separate program installed in the image, so a deploy that failed to
+    # fetch it leaves an app that works in every way except the one staff
+    # notice at the worst moment. Here it can be read without signing in.
     return {"ok": True, "version": os.environ.get("RENDER_GIT_COMMIT", "local")[:7],
-            "logins": len(_users()), "machine": pipe.machine()}
+            "logins": len(_users()), "dwg": dwgfmt.available(), "machine": pipe.machine()}
 
 _running: dict[str, dict] = {}   # job id -> {"step": ..., "error": ...}
 _lock = threading.Lock()
@@ -146,6 +151,11 @@ def _state(job_id: str) -> dict:
     meta["done"], meta["total"] = run.get("done"), run.get("total")
     meta["waiting"] = bool(run.get("waiting"))
     meta["phase"] = run.get("phase")
+    # What the client gets back. A DWG goes out as a DWG; only if the
+    # conversion failed does the page offer the DXF instead and say why.
+    meta["dl_ext"] = "dwg" if (meta.get("src_fmt") == "dwg"
+                               and (meta.get("stages", {}).get("patch", {}) or {}).get("dwg_written")
+                               ) else meta.get("fmt", "dxf")
     return meta
 
 
@@ -207,8 +217,10 @@ def list_jobs():
 @app.post("/api/jobs")
 def create_job(file: UploadFile = File(...), source: str = Form("auto"), target: str = Form("en"),
                client: str = Form(""), project: str = Form("")):
-    if not file.filename or not file.filename.lower().endswith((".dxf", ".pdf")):
-        raise HTTPException(400, "upload a .dxf (export DWG as DXF first) or a vector .pdf")
+    if not file.filename or not file.filename.lower().endswith((".dxf", ".dwg", ".pdf")):
+        raise HTTPException(400, "upload a .dwg, a .dxf or a vector .pdf")
+    if file.filename.lower().endswith(".dwg") and not dwgfmt.available():
+        raise HTTPException(400, dwgfmt.NO_CONVERTER)
     # A name of its own per upload. This was one shared "_upload.dxf" for every
     # upload in the jobs folder, so two staff starting a drawing in the same
     # second -- or one person choosing a whole set, which the page sends at
@@ -221,13 +233,29 @@ def create_job(file: UploadFile = File(...), source: str = Form("auto"), target:
     try:
         with tmp.open("wb") as f:
             shutil.copyfileobj(file.file, f)
-        job = Job.create(str(tmp), source, target, name=file.filename, root=_root(),
-                         client=client, project=project)
+        try:
+            job = Job.create(str(tmp), source, target, name=file.filename, root=_root(),
+                             client=client, project=project)
+        except RuntimeError as ex:
+            # The file is not what its name says, or there is no converter.
+            # Either way it is the upload that is wrong, not the server.
+            raise HTTPException(400, str(ex))
     finally:
         tmp.unlink(missing_ok=True)
 
     def prep():
-        job.inventory()
+        # Converting a DWG happens inside this step and can take as long as
+        # reading it. Say which half is running, or a long conversion looks
+        # like a drawing that has stopped.
+        def report(done: int, total: int, phase: str) -> None:
+            r = _running.get(job.id)
+            if r is not None:
+                r["done"], r["total"], r["phase"] = done, total, phase
+
+        job.inventory(on_progress=report)
+        r = _running.get(job.id)
+        if r is not None:
+            r.pop("done", None); r.pop("total", None); r.pop("phase", None)
         job.prepare()
 
     _background(job.id, "inventory", prep, queued=True)
@@ -544,7 +572,7 @@ def remember(job_id: str):
 def download(job_id: str, name: str):
     job = _job(job_id)
     fmt = job.fmt
-    if name not in ("output", "output-notes", "report.md", "input"):
+    if name not in ("output", "output-dxf", "output-notes", "report.md", "input"):
         raise HTTPException(404)
     if name == "output-notes":
         # Built fresh on each download, so it carries the flags as they stand
@@ -559,12 +587,23 @@ def download(job_id: str, name: str):
         marked = job.dir / "output_notes.pdf"
         pdfdoc.annotate(str(job.output_path), str(marked), notes, summary)
         return FileResponse(str(marked), filename=f"{Path(job.meta['name']).stem}_{job.meta['target'].upper()}_notes.pdf")
-    p = {"output": job.output_path, "input": job.input_path, "report.md": job.dir / "report.md"}[name]
+    # "output" is whatever the client should get: the DWG when they gave us
+    # one and it converted, the DXF otherwise. "output-dxf" is always the DXF,
+    # for anyone who wants the file this app actually verified. "input" is the
+    # file as uploaded, DWG and all, because that is the evidence if the
+    # conversion is ever blamed for something.
+    out, out_ext = job.output_path, fmt
+    if name == "output" and job.src_fmt == "dwg" and job.dwg_path.exists():
+        out, out_ext = job.dwg_path, "dwg"
+    p = {"output": out, "output-dxf": job.output_path,
+         "input": job.source_path, "report.md": job.dir / "report.md"}[name]
     if not p.exists():
         raise HTTPException(404, "not produced yet")
     stem = Path(job.meta["name"]).stem
-    filename = {"output": f"{stem}_{job.meta['target'].upper()}.{fmt}", "report.md": f"{stem}_report.md", "input": job.meta["name"]}[name]
-    if name in ("output", "output-notes"):
+    filename = {"output": f"{stem}_{job.meta['target'].upper()}.{out_ext}",
+                "output-dxf": f"{stem}_{job.meta['target'].upper()}.dxf",
+                "report.md": f"{stem}_report.md", "input": job.meta["name"]}[name]
+    if name in ("output", "output-dxf", "output-notes"):
         # Taking the drawing away is what "done with it" actually means. The
         # patch stage only says a file was produced; this says somebody came
         # and collected it, which is the thing worth seeing in the list.

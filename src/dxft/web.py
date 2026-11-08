@@ -15,6 +15,7 @@ import gc
 import threading
 import time
 import traceback
+import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -208,12 +209,22 @@ def create_job(file: UploadFile = File(...), source: str = Form("auto"), target:
                client: str = Form(""), project: str = Form("")):
     if not file.filename or not file.filename.lower().endswith((".dxf", ".pdf")):
         raise HTTPException(400, "upload a .dxf (export DWG as DXF first) or a vector .pdf")
-    tmp = _root() / ("_upload.pdf" if file.filename.lower().endswith(".pdf") else "_upload.dxf")
+    # A name of its own per upload. This was one shared "_upload.dxf" for every
+    # upload in the jobs folder, so two staff starting a drawing in the same
+    # second -- or one person choosing a whole set, which the page sends at
+    # once -- wrote over each other's file between the copy and the read. The
+    # job that lost the race was created from the other drawing, with its own
+    # name on it: nothing failed, and the wrong sheet came back translated.
+    # Removed in a finally, or a failed create would leave the copy behind.
+    tmp = _root() / f"_upload-{uuid.uuid4().hex}{Path(file.filename).suffix.lower()}"
     tmp.parent.mkdir(parents=True, exist_ok=True)
-    with tmp.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
-    job = Job.create(str(tmp), source, target, name=file.filename, root=_root(), client=client, project=project)
-    tmp.unlink(missing_ok=True)
+    try:
+        with tmp.open("wb") as f:
+            shutil.copyfileobj(file.file, f)
+        job = Job.create(str(tmp), source, target, name=file.filename, root=_root(),
+                         client=client, project=project)
+    finally:
+        tmp.unlink(missing_ok=True)
 
     def prep():
         job.inventory()

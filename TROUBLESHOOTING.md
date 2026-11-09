@@ -233,6 +233,30 @@ the review table, approve it, then press **Store in memory**. Every later sheet 
 project reuses the stored wording. Do this at the end of the first sheet of a set and the
 rest of the set comes back consistent.
 
+### A sheet preview shows only the border, the title block and the notes
+
+The middle of the sheet is blank in **both** Before and After. Everything else on
+the page is there: the frame, the stamp, the numbered notes. It reads as though
+the translation emptied the drawing.
+
+It did not, and nothing is wrong with the file you download. This is the picture,
+not the drawing.
+
+A paper sheet is mostly a window onto the building, which lives in model space.
+Each window is a viewport, and a viewport carries a field saying whether it is on.
+Until 9 November 2026 the app believed that field. Plenty of drawings write every
+viewport as off and AutoCAD draws them regardless — on one Russian HVAC set that
+was 26 of its 27 sheets, including the one sheet whose viewports were numbered
+properly and so had always looked right. ezdxf's own source calls that field
+"very unreliable".
+
+Now, when no viewport on a sheet claims to be on, the app stops believing the
+field and draws them all. Where a drafter has genuinely switched one viewport off
+and left others on, that is still respected.
+
+If you see this on a sheet today, it is a drawing worth sending in — say which
+sheet, and use **Report a problem** so the job comes with it.
+
 ### Characters show as hollow boxes
 
 The viewer has no font for them. Check in AutoCAD before judging the output. This is a

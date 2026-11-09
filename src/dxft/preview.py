@@ -178,6 +178,53 @@ def _stop_phantom_wrapping(doc) -> int:
     return fixed
 
 
+def _wake_sleeping_viewports(space) -> int:
+    """Preview only: a sheet whose viewports are all marked "off" is drawn
+    empty, and it should not be.
+
+    A paper sheet is a border, a title block, and viewports -- windows onto the
+    building in model space. The drawing add-on skips any viewport whose status
+    field is not positive, because the DXF reference says 0 means off. Whole
+    sets arrive with every viewport on most sheets written as status 0 and id 0,
+    and AutoCAD draws them regardless. On one Russian HVAC set that was 24 of 27
+    sheets: border, title block and notes, and nothing in the middle -- in the
+    Before picture as much as the After, so it read as the translation having
+    eaten the drawing. ezdxf's own source calls both fields "very unreliable".
+
+    So when no viewport on the sheet claims to be on, none of them is believed:
+    they are numbered here instead. The first one the add-on is handed is taken
+    as the sheet's own overall view and dropped, so the viewport that covers the
+    sheet at 1:1 -- its view centre and height equal to its own -- is put first
+    and given 1. Where there is no such viewport nothing may be dropped, so the
+    numbering starts at 2 and every window is drawn. The document on disk is
+    never touched.
+    """
+    try:
+        vps = [e for e in space if e.dxftype() == "VIEWPORT"]
+    except Exception:
+        return 0
+    if not vps or any(v.dxf.get("status", 0) > 0 for v in vps):
+        return 0
+
+    def is_whole_sheet(v) -> bool:
+        try:
+            d = v.dxf
+            return (abs(d.view_center_point[0] - d.center[0]) < 1e-6
+                    and abs(d.view_center_point[1] - d.center[1]) < 1e-6
+                    and abs(d.view_height - d.height) < 1e-6)
+        except Exception:
+            return False
+
+    vps.sort(key=lambda v: not is_whole_sheet(v))
+    first = 1 if is_whole_sheet(vps[0]) else 2
+    for i, v in enumerate(vps, start=first):
+        try:
+            v.dxf.status = i
+        except Exception:
+            continue
+    return len(vps)
+
+
 # A drawing with a third of a million entities cannot be drawn at full size:
 # one Russian set ran the server out of memory every time and the picture
 # never appeared at all. Halving the width quarters the work, and a coarse
@@ -249,6 +296,7 @@ def render(dxf_path: Path, png_path: Path, window: tuple[float, float, float, fl
     if layout:
         try:
             space = doc.layouts.get(layout)
+            _wake_sleeping_viewports(space)
         except Exception:
             space = doc.modelspace()
     cfg = Configuration(color_policy=ColorPolicy.BLACK, background_policy=BackgroundPolicy.WHITE)
